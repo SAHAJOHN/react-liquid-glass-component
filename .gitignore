@@ -34,3 +34,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# production
+/dist
+
+# eslint / prettier cache
+/.eslintcache
+/.prettiercache
+
+# examples
+/examples/node_modules
+
+.idea
