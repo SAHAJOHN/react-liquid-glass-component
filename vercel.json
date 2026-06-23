@@ -1,6 +1,5 @@
 {
   "buildCommand": "yarn build",
-  "outputDirectory": ".next",
   "installCommand": "yarn install",
-  "rootDirectory": "web"
+  "outputDirectory": ".next"
 }
