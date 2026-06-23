@@ -6,6 +6,7 @@ type Page = 'showcase' | 'demo'
 
 const DEFAULT_PROPS = {
   borderRadius: 28,
+  borderWidth: 0.07,
   blur: 14,
   opacity: 0.92,
   brightness: 48,
@@ -18,7 +19,15 @@ const DEFAULT_PROPS = {
   blueOffset: 20,
   xChannel: 'R' as const,
   yChannel: 'G' as const,
+  mixBlendMode: 'difference' as const,
 }
+
+const BLEND_MODES = [
+  'normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten',
+  'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference',
+  'exclusion', 'hue', 'saturation', 'color', 'luminosity', 'plus-darker',
+  'plus-lighter',
+] as const
 
 function Showcase() {
   return (
@@ -111,11 +120,15 @@ function Demo() {
   const setChan = (key: 'xChannel' | 'yChannel') => (e: React.ChangeEvent<HTMLSelectElement>) =>
     set(prev => ({ ...prev, [key]: e.target.value as 'R' | 'G' | 'B' }))
 
+  const setBlendMode = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    set(prev => ({ ...prev, mixBlendMode: e.target.value as typeof BLEND_MODES[number] }))
+
   return (
     <div className="demo-layout">
       {/* Controls panel = LiquidGlass ตัวเอง */}
       <LiquidGlass
         borderRadius={p.borderRadius}
+        borderWidth={p.borderWidth}
         blur={p.blur}
         opacity={p.opacity}
         brightness={p.brightness}
@@ -128,6 +141,7 @@ function Demo() {
         blueOffset={p.blueOffset}
         xChannel={p.xChannel}
         yChannel={p.yChannel}
+        mixBlendMode={p.mixBlendMode}
         style={{ padding: 0, maxWidth: '100%', maxHeight: '80dvh', width: '440px', background: '#00000066' }}
       >
         <div className="demo-controls">
@@ -137,10 +151,11 @@ function Demo() {
           </div>
 
           <Slider label="Border Radius" value={p.borderRadius} min={0} max={400} onChange={setNum('borderRadius')} />
+          <Slider label="Border Width" value={p.borderWidth} min={0} max={0.3} step={0.01} onChange={setNum('borderWidth')} />
           <Slider label="Blur" value={p.blur} min={0} max={80} onChange={setNum('blur')} />
-          <Slider label="Opacity" value={p.opacity} min={0.1} max={1} step={0.01} onChange={setNum('opacity')} />
+          <Slider label="Opacity" value={p.opacity} min={0} max={1} step={0.01} onChange={setNum('opacity')} />
           <Slider label="Brightness" value={p.brightness} min={0} max={100} onChange={setNum('brightness')} />
-          <Slider label="Saturation" value={p.saturation} min={0.5} max={6} step={0.1} onChange={setNum('saturation')} />
+          <Slider label="Saturation" value={p.saturation} min={0} max={6} step={0.1} onChange={setNum('saturation')} />
           <Slider label="Distortion Scale" value={p.distortionScale} min={-600} max={600} onChange={setNum('distortionScale')} />
           <Slider label="Displace" value={p.displace} min={0} max={10} step={0.1} onChange={setNum('displace')} />
           <Slider label="Background Opacity" value={p.backgroundOpacity} min={0} max={1} step={0.01} onChange={setNum('backgroundOpacity')} />
@@ -161,6 +176,8 @@ function Demo() {
               <Select label="Y Channel" value={p.yChannel} options={['R','G','B']} onChange={setChan('yChannel')} />
             </div>
           </div>
+
+          <Select label="Mix Blend Mode" value={p.mixBlendMode} options={[...BLEND_MODES]} onChange={setBlendMode} />
         </div>
       </LiquidGlass>
     </div>
