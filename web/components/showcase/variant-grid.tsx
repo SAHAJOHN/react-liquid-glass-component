@@ -15,6 +15,16 @@ const VariantGridStyled = styled.section`
     filter: drop-shadow(0px 0px 8px rgba(0, 0, 0, 0.5));
   }
 
+    .card {
+        @media (max-width: 927px) {
+            flex: 1 !important;
+            width: auto !important;
+        }
+        @media (max-width: 627px) {
+            width: 100% !important;
+            flex: unset !important;
+        }
+    }
   .variant-card__body {
     text-align: center;
     padding: 8px;
@@ -48,6 +58,7 @@ export default function VariantGrid() {
         brightness={50}
         width={280}
         height={180}
+        className='card'
       >
         <div className="variant-card__body">
           <h2 className="variant-card__title">Natural</h2>
@@ -68,6 +79,7 @@ export default function VariantGrid() {
         distortionScale={-220}
         width={280}
         height={180}
+        className='card'
       >
         <div className="variant-card__body">
           <h2 className="variant-card__title">Deep Blur</h2>
@@ -90,6 +102,7 @@ export default function VariantGrid() {
         distortionScale={-300}
         width={280}
         height={180}
+        className='card'
       >
         <div className="variant-card__body">
           <h2 className="variant-card__title">Chromatic</h2>

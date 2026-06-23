@@ -13,6 +13,7 @@ const HeroStyled = styled.section`
   .hero__content {
     text-align: center;
     padding: 32px;
+      max-width: 100%;
 
     & > * {
       filter: drop-shadow(0px 0px 8px rgba(0, 0, 0, 0.5));
@@ -44,6 +45,10 @@ const HeroStyled = styled.section`
 
   .hero__code {
     display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
     font-size: ${fontSize.sm};
     background: ${colors.codeBackground};
@@ -68,9 +73,12 @@ export default function HeroCard() {
         opacity={0.92}
         brightness={48}
         width={640}
-        height={280}
         displace={0.6}
         distortionScale={-160}
+        style={{
+            minHeight: '284px',
+            maxWidth: '100%'
+        }}
       >
         <div className="hero__content">
           <h1 className="hero__title">React Liquid Glass Component</h1>

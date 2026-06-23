@@ -20,21 +20,29 @@ const InstallStyled = styled.section`
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+    overflow: hidden;
   }
 
   .install__code {
     display: flex;
     align-items: center;
+    min-width: 0;
+    flex: 1;
     font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
     font-size: ${fontSize.md};
     color: rgba(255, 255, 255, 0.75);
     letter-spacing: -0.01em;
     filter: drop-shadow(0px 0px 8px rgba(0, 0, 0, 0.5));
-    white-space: nowrap;
 
     @media (max-width: 700px) {
       font-size: 0.7rem;
     }
+  }
+
+  .install__text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .install__prompt {
@@ -82,7 +90,7 @@ export default function InstallSnippet() {
         <div className="install__code-row">
           <code className="install__code">
             <span className="install__prompt">$</span>
-            npm install react-liquid-glass-component styled-components
+            <span className="install__text">npm install react-liquid-glass-component styled-components</span>
           </code>
           <div
             className="install__copy-btn"
