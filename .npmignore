@@ -1,0 +1,15 @@
+src/
+node_modules/
+.babelrc
+.eslintrc
+.eslintrc.cjs
+.prettierrc
+.gitignore
+tsconfig.json
+tsconfig.build.json
+tsup.config.ts
+vitest.config.ts
+web/
+docs/
+examples/
+*.map

@@ -43,6 +43,6 @@ next-env.d.ts
 /.prettiercache
 
 # examples
-/examples/node_modules
+/web/node_modules
 
 .idea

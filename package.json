@@ -11,7 +11,8 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -19,6 +20,11 @@
     "LICENSE"
   ],
   "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SAHAJOHN/react-liquid-glass-component.git"
+  },
+  "homepage": "https://react-liquid-glass-component.vercel.app",
   "keywords": [
     "react",
     "react-component",

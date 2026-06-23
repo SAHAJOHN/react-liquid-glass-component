@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 export default function DemoPage() {
   return (
     <>
-      <VideoBackground src="/bangkok.mp4" />
+      <VideoBackground src="/videos/bangkok.mp4" />
       <Navbar current="demo" />
       <MainStyled>
         <DemoPanel />

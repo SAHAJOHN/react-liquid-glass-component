@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 export default function ShowcasePage() {
   return (
     <>
-      <VideoBackground src="/bangkok.mp4" />
+      <VideoBackground src="/videos/bangkok.mp4" />
       <Navbar current="showcase" />
       <MainStyled>
         <HeroCard />

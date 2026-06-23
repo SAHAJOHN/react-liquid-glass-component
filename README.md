@@ -6,36 +6,51 @@
 
 > A React component that wraps any children in a liquid glass surface — frosted blur, real-time SVG distortion, and chromatic aberration. Zero runtime dependencies beyond React and styled-components.
 
-```bash
-npm install react-liquid-glass-component styled-components
-```
+---
 
 ## Table of Contents
 
-- [Features](#features)
+- [Demo](#demo)
+- [Screenshots](#screenshots)
+- [Install](#install)
 - [Quick Start](#quick-start)
+- [Features](#features)
 - [Props](#props)
 - [Examples](#examples)
-  - [Basic Usage](#basic-usage)
-  - [Chromaric Aberration](#chromatic-aberration)
-  - [Circular Glass](#circular-glass)
-  - [With Ref](#with-ref)
-  - [Full-width with CSS](#full-width-with-css)
+- [CSS Custom Properties](#css-custom-properties)
+- [SSR Note](#ssr-note)
 - [How It Works](#how-it-works)
 - [Browser Support](#browser-support)
 - [Local Development](#local-development)
 - [License](#license)
 
-## Features
+---
 
-- 🧊 **Liquid Distortion** — Real-time SVG displacement map that morphs the background behind the glass
-- 🌈 **Chromatic Aberration** — Per-channel RGB offset for a prismatic glass effect
-- 🌀 **Auto-sizing** — Displacement map regenerates on resize via `ResizeObserver`
-- 🪶 **Lightweight** — ~8 KB minified, only two peer dependencies
-- 🧩 **TypeScript** — Full type definitions with strict mode support
-- ♿ **Accessible** — Extends `HTMLAttributes`, passes native props, supports keyboard focus
-- 📉 **Fallback Chain** — SVG filter → `backdrop-filter` → plain background, degrading gracefully
-- 🎨 **15+ Configurable Props** — Blur, brightness, opacity, saturation, displacement, channel offsets, and more
+## Demo
+
+![showcase preview](https://raw.githubusercontent.com/SAHAJOHN/react-liquid-glass-component/main/web/public/images/showcase.gif)
+
+> 👉 **Try the interactive demo at [react-liquid-glass-component.vercel.app](https://react-liquid-glass-component.vercel.app)**
+
+---
+
+## Screenshots
+
+| Showcase | Interactive Demo |
+|---|---|
+| ![showcase](https://raw.githubusercontent.com/SAHAJOHN/react-liquid-glass-component/main/web/public/images/showcase.png) | ![demo](https://raw.githubusercontent.com/SAHAJOHN/react-liquid-glass-component/main/web/public/images/demo.png) |
+
+---
+
+## Install
+
+```bash
+npm install react-liquid-glass-component styled-components
+```
+
+> `styled-components` is a peer dependency and must be installed separately.
+
+---
 
 ## Quick Start
 
@@ -52,7 +67,22 @@ function App() {
 }
 ```
 
-The glass effect wraps the children automatically. `width` and `height` default to `'auto'` — omit them to let CSS or the `style` prop control sizing.
+`width` and `height` default to `'auto'` — omit them to let CSS or the `style` prop control sizing.
+
+---
+
+## Features
+
+- 🧊 **Liquid Distortion** — Real-time SVG displacement map that morphs the background behind the glass
+- 🌈 **Chromatic Aberration** — Per-channel RGB offset for a prismatic glass effect
+- 🌀 **Auto-sizing** — Displacement map regenerates on resize via `ResizeObserver`
+- 🪶 **Lightweight** — ~8 KB minified, only two peer dependencies
+- 🧩 **TypeScript** — Full type definitions with strict mode support
+- ♿ **Accessible** — Extends `HTMLAttributes`, passes native props, supports keyboard focus
+- 📉 **Fallback Chain** — SVG filter → `backdrop-filter` → plain background, degrading gracefully
+- 🎨 **15+ Configurable Props** — Blur, brightness, opacity, saturation, displacement, channel offsets, and more
+
+---
 
 ## Props
 
@@ -81,6 +111,8 @@ The glass effect wraps the children automatically. `width` and `height` default 
 | HTML attributes | — | — | `className`, `style`, `tabIndex`, `aria-*`, `data-*`, `onClick`, etc. |
 
 > The component extends `React.HTMLAttributes<HTMLDivElement>`. Any native HTML attribute is forwarded to the root element via `...rest`.
+
+---
 
 ## Examples
 
@@ -149,7 +181,9 @@ Because `width` defaults to `'auto'`, you can control sizing entirely through CS
 </LiquidGlass>
 ```
 
-### CSS Custom Properties
+---
+
+## CSS Custom Properties
 
 The root element exposes these custom properties for CSS-level customization:
 
@@ -160,11 +194,15 @@ The root element exposes these custom properties for CSS-level customization:
 | `--glass-saturation` | `saturation` | Backdrop saturation multiplier |
 | `--filter-id` | (internal) | SVG filter reference `url(#...)` |
 
-### SSR (Next.js / Server Components)
+---
+
+## SSR Note
 
 The component uses `useId()` for stable filter IDs and initializes `svgSupported` as `false`, so the server and client first paint are always consistent. Feature detection runs client-side only via `useEffect`, so no hydration issues.
 
 If you're using Next.js App Router or any SSR framework, `LiquidGlass` works without any `'use client'` wrapper — just import and use it directly.
+
+---
 
 ## How It Works
 
@@ -192,6 +230,8 @@ The displacement map SVG is regenerated dynamically on every resize via `ResizeO
 | 2 | CSS `backdrop-filter` supported | `blur()` + `saturate()` + box-shadows |
 | 3 | `@supports not (backdrop-filter)` | Semi-transparent background |
 
+---
+
 ## Browser Support
 
 | Chrome | Firefox | Safari | Edge |
@@ -200,10 +240,12 @@ The displacement map SVG is regenerated dynamically on every resize via `ResizeO
 
 Modern browsers get the full SVG filter effect. Older browsers degrade gracefully to `backdrop-filter` and then to a plain semi-transparent background.
 
+---
+
 ## Local Development
 
 ```bash
-# Watch mode — rebuild on src/ changes
+# Watch mode — rebuild library on src/ changes
 npm run dev
 
 # Run tests
@@ -212,16 +254,18 @@ npm test
 # TypeScript check
 npm run typecheck
 
-# Build for production
+# Build library for production
 npm run build
 
-# Interactive playground (Vite)
-cd examples
-npm install
-npm run dev
+# Run the Next.js demo site
+cd web
+yarn install
+yarn dev
 ```
 
-The playground imports directly from `../src/index.ts` via a Vite alias — no build step needed during development.
+The demo site at `web/` imports the library from the npm package (after `npm run build` in the root).
+
+---
 
 ## License
 
