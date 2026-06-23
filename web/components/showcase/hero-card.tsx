@@ -78,7 +78,7 @@ export default function HeroCard() {
             Frosted glass effect for React — SVG distortion, chromatic aberration, blur.
           </p>
           <code className="hero__code">
-            {'{ LiquidGlass }'} from 'react-liquid-glass-component'
+            {'{ LiquidGlass }'} from {'react-liquid-glass-component'}
           </code>
         </div>
       </LiquidGlass>

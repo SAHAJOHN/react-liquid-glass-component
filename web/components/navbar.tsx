@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import styled from 'styled-components'
-import { fonts, fontWeight, fontSize, colors } from '@/lib/responsive'
+import { fontWeight, fontSize, colors } from '@/lib/responsive'
 
 const NavbarStyled = styled.nav<{ $hidden: boolean }>`
   position: fixed;
