@@ -38,8 +38,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src examples/src --ext .ts,.tsx",
-    "format": "prettier --write \"src/**/*.{ts,tsx,json,md}\" \"examples/**/*.{ts,tsx,json,md}\""
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write \"src/**/*.{ts,tsx,json,md}\""
   },
   "peerDependencies": {
     "react": ">=18.0.0",

@@ -60,4 +60,15 @@ describe('LiquidGlass', () => {
     expect(root.style.width).toBe('100%')
     expect(root.style.height).toBe('50vh')
   })
+
+  it('sets glassColor and backgroundOpacity as CSS custom properties', () => {
+    const { container } = render(
+      <LiquidGlass glassColor="#ff6b6b" backgroundOpacity={0.5}>
+        x
+      </LiquidGlass>,
+    )
+    const root = container.firstChild as HTMLElement
+    expect(root.style.getPropertyValue('--glass-color')).toBe('#ff6b6b')
+    expect(root.style.getPropertyValue('--glass-frost')).toBe('0.5')
+  })
 })

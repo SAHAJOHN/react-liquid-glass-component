@@ -38,6 +38,7 @@ import type { LiquidGlassProps } from 'react-liquid-glass-component'
 | `blur` | `number` | `11` | Frosted blur in px |
 | `displace` | `number` | `0` | Post-filter Gaussian blur on output |
 | `backgroundOpacity` | `number` | `0` | Frost background opacity (`--glass-frost`) |
+| `glassColor` | `string` | `'light-dark(white, black)'` | Glass tint color — any CSS color value |
 | `saturation` | `number` | `1` | Saturation multiplier (`--glass-saturation`) |
 | `distortionScale` | `number` | `-180` | Liquid distortion intensity (negative = inverted warp) |
 | `redOffset` | `number` | `0` | Extra distortion offset for red channel |
@@ -82,6 +83,7 @@ export interface LiquidGlassProps extends HTMLAttributes<HTMLDivElement> {
   blur?: number
   displace?: number
   backgroundOpacity?: number
+  glassColor?: string
   saturation?: number
   distortionScale?: number
   redOffset?: number
@@ -147,6 +149,7 @@ The component sets these custom properties on the root element for CSS-based cus
 
 | Property | Source Prop | Description |
 |---|---|---|
+| `--glass-color` | `glassColor` | Glass tint color |
 | `--glass-frost` | `backgroundOpacity` | Background opacity of the glass |
 | `--glass-saturation` | `saturation` | Backdrop saturation multiplier |
 | `--filter-id` | (internal) | SVG filter reference `url(#...)` |

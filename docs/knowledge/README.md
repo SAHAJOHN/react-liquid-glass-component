@@ -72,8 +72,8 @@ react-liquid-glass-component/
 │   ├── styles.ts                 # styled-component
 │   ├── setupTests.ts             # Test setup (jest-dom + ResizeObserver mock)
 │   └── __tests__/
-│       └── LiquidGlass.test.tsx  # 8 smoke tests
-├── examples/                     # Vite playground (alias to src/)
+│       └── LiquidGlass.test.tsx  # 9 smoke tests
+├── web/                           # Next.js 16 demo site<!--nobreak-->
 ├── docs/knowledge/
 │   ├── README.md                 # ← This file — Hub
 │   ├── architecture.md           # How the component works

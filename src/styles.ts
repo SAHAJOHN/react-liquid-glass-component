@@ -35,10 +35,12 @@ export const LiquidGlassStyled = styled.div`
   }
 
   &.liquid-glass--svg {
-    background: light-dark(
-        hsl(0 0% 100% / var(--glass-frost, 0)),
-        hsl(0 0% 0% / var(--glass-frost, 0))
-      );
+    background: color-mix(
+      in oklch,
+      var(--glass-color, light-dark(white, black))
+        calc(var(--glass-frost, 0) * 100%),
+      transparent
+    );
     backdrop-filter: var(--filter-id, url(#glass-filter))
       saturate(var(--glass-saturation, 1));
     box-shadow:

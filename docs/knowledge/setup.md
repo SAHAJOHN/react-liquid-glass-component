@@ -55,15 +55,15 @@ npm run dev
 
 Rebuilds `dist/` automatically when `src/` changes.
 
-### 2. Playground (examples/)
+### 2. Playground (`web/`)
 
 ```bash
-cd examples
-npm install
-npm run dev
+cd web
+yarn install
+yarn dev
 ```
 
-Opens at `localhost:5173`. Imports directly from `../src/index.ts` via Vite alias — no build step needed.
+Opens at `localhost:3000`. Imports the library via a direct symlink — uses the built `dist/` output, so run `npm run build` in the root after making library changes.
 
 ### 3. Run tests
 
@@ -135,7 +135,7 @@ git push origin v0.1.0
 - `LICENSE`
 - `package.json`
 
-No source files, configs, or examples are included.
+No source files, configs, or demos are included.
 
 ---
 
@@ -146,4 +146,4 @@ No source files, configs, or examples are included.
 - [ ] `npm run test` — all tests pass
 - [ ] `npm run build` — ESM + CJS + .d.ts generated
 - [ ] `npm pack --dry-run` — only the right files are included
-- [ ] `cd examples && npm install && npm run dev` — playground works
+- [ ] `cd web && yarn install && yarn build` — demo site builds

@@ -20,6 +20,7 @@ export interface LiquidGlassProps extends HTMLAttributes<HTMLDivElement> {
   blur?: number
   displace?: number
   backgroundOpacity?: number
+  glassColor?: string
   saturation?: number
   distortionScale?: number
   redOffset?: number
@@ -63,6 +64,7 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>(
       blur = 11,
       displace = 0,
       backgroundOpacity = 0,
+      glassColor,
       saturation = 1,
       distortionScale = -180,
       redOffset = 0,
@@ -214,6 +216,7 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>(
         ? { height: typeof height === 'number' ? `${height}px` : height }
         : {}),
       borderRadius: `${borderRadius}px`,
+      '--glass-color': glassColor ?? 'light-dark(white, black)',
       '--glass-frost': backgroundOpacity,
       '--glass-saturation': saturation,
       '--filter-id': `url(#${filterId})`,

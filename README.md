@@ -68,6 +68,7 @@ The glass effect wraps the children automatically. `width` and `height` default 
 | `blur` | `number` | `11` | Frosted blur amount in px |
 | `displace` | `number` | `0` | Post-filter Gaussian blur on the output |
 | `backgroundOpacity` | `number` | `0` | Frost background opacity (`--glass-frost`) |
+| `glassColor` | `string` | `light-dark(white, black)` | Glass tint color — any CSS color value |
 | `saturation` | `number` | `1` | Saturation multiplier (`--glass-saturation`) |
 | `distortionScale` | `number` | `-180` | Intensity of the liquid distortion (negative inverts the warp) |
 | `redOffset` | `number` | `0` | Extra displacement offset for the red channel |
@@ -154,6 +155,7 @@ The root element exposes these custom properties for CSS-level customization:
 
 | Property | Source Prop | Description |
 |---|---|---|
+| `--glass-color` | `glassColor` | Glass tint color |
 | `--glass-frost` | `backgroundOpacity` | Background opacity of the glass |
 | `--glass-saturation` | `saturation` | Backdrop saturation multiplier |
 | `--filter-id` | (internal) | SVG filter reference `url(#...)` |
