@@ -15,6 +15,7 @@ const DemoStyled = styled.div`
   margin-top: 80px;
 
   .demo__controls {
+    width: 100%;
     padding: ${sectionPadding.controls};
     height: 100%;
     overflow-y: auto;
