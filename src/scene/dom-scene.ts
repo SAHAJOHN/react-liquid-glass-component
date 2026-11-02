@@ -35,6 +35,8 @@ interface Geometry {
   scaleX: number
   scaleY: number
   opacity: number
+  brightness: number
+  filtered: boolean
   transformed: boolean
   clips?: readonly Clip[]
 }
@@ -53,6 +55,23 @@ interface SvgRasterSize {
 }
 const omitted = new Set(['SCRIPT', 'STYLE', 'LINK', 'META', 'NOSCRIPT', 'TEMPLATE'])
 const editableInputTypes = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number'])
+const filterError = 'CSS filters outside LiquidGlass require native HTML rendering'
+
+type Filter = { kind: 'none' } | { kind: 'brightness'; factor: number } | { kind: 'unsupported' }
+
+/** Darkening commutes with source-over compositing; brightening can clip per layer. */
+function readFilter(value: string | undefined): Filter {
+  const input = value?.trim() ?? ''
+  if (!input || input === 'none') return { kind: 'none' }
+  const match = /^brightness\(\s*([+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)\s*(%)?\s*\)$/i.exec(
+    input
+  )
+  if (!match?.[1]) return { kind: 'unsupported' }
+  const factor = Number(match[1]) / (match[2] ? 100 : 1)
+  return Number.isFinite(factor) && factor >= 0 && factor <= 1
+    ? { kind: 'brightness', factor }
+    : { kind: 'unsupported' }
+}
 
 function toRect(bounds: DOMRect, space: Space, frame: SceneFrame): SceneRect {
   return {
@@ -95,6 +114,7 @@ function base(rect: SceneRect, geometry: Geometry) {
     rect,
     space: geometry.space,
     opacity: geometry.opacity,
+    ...(geometry.brightness !== 1 ? { brightness: geometry.brightness } : {}),
     ...(geometry.clips?.length ? { clips: geometry.clips } : {}),
   }
 }
@@ -241,12 +261,17 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         // This common screen-reader-only pattern still remains in the native DOM.
         if (/^inset\(50%\)$/.test(style.clipPath)) return
         const bounds = element.getBoundingClientRect()
+        const filter = readFilter(style.filter)
         const geometry: Geometry = {
           ...inherited,
           opacity: inherited.opacity * (Number.parseFloat(style.opacity) || 0),
+          brightness: inherited.brightness * (filter.kind === 'brightness' ? filter.factor : 1),
+          filtered: inherited.filtered || filter.kind === 'brightness',
         }
         if (style.position === 'fixed' && !inherited.transformed) geometry.space = 'viewport'
         if (style.position === 'sticky') liveGeometry = true
+        // A CSS filter creates a containing block for fixed descendants, even at brightness(1).
+        if (filter.kind === 'brightness') geometry.transformed = true
         if (style.transform !== 'none') {
           geometry.transformed = true
           const matrix = new DOMMatrixReadOnly(style.transform)
@@ -267,7 +292,10 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         }
         if (geometry.opacity <= 0) return
         const glass = element instanceof HTMLElement ? glasses.get(element) : undefined
-        if (!glass) inspectUnsupported(element, style, issues)
+        if (!glass) inspectUnsupported(element, style, issues, filter)
+        else if (filter.kind === 'unsupported' || geometry.brightness !== 1) issues.add(filterError)
+        // Group opacity can make separately painted overlapping items differ from native CSS.
+        if (geometry.filtered && geometry.opacity < 1) issues.add(filterError)
         inspectStackingOrder(element, style, root, issues)
         const visible = style.visibility === 'visible' && bounds.width > 0 && bounds.height > 0
         const rect = toRect(bounds, geometry.space, frame)
@@ -457,7 +485,12 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
           element.matches('a[href],button,input,select,textarea,[role="button"],[tabindex]') &&
           !element.matches(':disabled')
         )
-          targets.push({ element, rect, space: geometry.space })
+          targets.push({
+            element,
+            rect,
+            space: geometry.space,
+            ...(geometry.brightness !== 1 ? { brightness: geometry.brightness } : {}),
+          })
 
         let childrenGeometry = geometry
         const clipsX = style.overflowX !== 'visible' && style.overflowX !== 'unset'
@@ -986,7 +1019,15 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         }
       }
 
-      walk(root, { space: 'document', scaleX: 1, scaleY: 1, opacity: 1, transformed: false })
+      walk(root, {
+        space: 'document',
+        scaleX: 1,
+        scaleY: 1,
+        opacity: 1,
+        brightness: 1,
+        filtered: false,
+        transformed: false,
+      })
       const focused = targets.find(({ element }) => element.matches(':focus-visible'))
       if (focused) {
         const { rect, space } = focused
@@ -1002,6 +1043,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
             rect: edge,
             space,
             opacity: 1,
+            ...(focused.brightness !== undefined ? { brightness: focused.brightness } : {}),
             radius: 1,
             color: [0.55, 0.86, 1, 1],
           })
@@ -1046,7 +1088,8 @@ function hasBoxPaint(style: CSSStyleDeclaration, color: (value: string) => reado
 function inspectUnsupported(
   element: HTMLElement | SVGSVGElement,
   style: CSSStyleDeclaration,
-  issues: Set<string>
+  issues: Set<string>,
+  filter: Filter
 ) {
   if (
     element instanceof HTMLIFrameElement ||
@@ -1060,8 +1103,7 @@ function inspectUnsupported(
     document.activeElement === element
   )
     issues.add('Active text editing requires native HTML rendering')
-  if (style.filter !== 'none' || hasBackdropFilter(style))
-    issues.add('CSS filters outside LiquidGlass require native HTML rendering')
+  if (filter.kind === 'unsupported' || hasBackdropFilter(style)) issues.add(filterError)
   if (style.textShadow !== 'none') issues.add('CSS text shadows require native HTML rendering')
   if (style.borderImageSource !== 'none')
     issues.add('CSS border images require native HTML rendering')

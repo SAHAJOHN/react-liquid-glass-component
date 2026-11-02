@@ -114,6 +114,60 @@ describe('pseudo-element measurement', () => {
     expect(measurePseudoBox(element, '::after', read).status).toBe('unsupported')
   })
 
+  it('moves a pseudo box by the resolved transform translation without resizing its raster', () => {
+    const { element, pseudoStyle, read } = fixture()
+    for (const [transform, x, y, opacity] of [
+      ['matrix(1, 0, 0, 1, 0, 0)', 52, 88, '1'],
+      ['matrix(1, 0, 0, 1, -16, 4)', 36, 92, '0.5'],
+      ['matrix(1, 0, 0, 1, 8.25, -2.5)', 60.25, 85.5, '0.25'],
+    ] as const) {
+      pseudoStyle.transform = transform
+      pseudoStyle.opacity = opacity
+      const result = measurePseudoBox(element, '::before', read)
+      expect(result.status, transform).toBe('ready')
+      if (result.status === 'ready') {
+        expect(result.rect).toEqual({ x, y, width: 80, height: 30 })
+        expect(result.localSize).toEqual({ width: 80, height: 30 })
+        expect(result.opacity).toBe(Number(opacity))
+      }
+    }
+  })
+
+  it('maps pseudo translation through the containing block scales', () => {
+    const { element, pseudoStyle, parentStyle, read } = fixture()
+    parentStyle.transform = 'matrix(1.5, 0, 0, 0.5, 10, 20)'
+    pseudoStyle.transform = 'matrix(1, 0, 0, 1, -16, 4)'
+    vi.mocked(element.getBoundingClientRect).mockReturnValue(new DOMRect(40, 80, 300, 50))
+    const result = measurePseudoBox(element, '::after', read)
+    expect(result.status).toBe('ready')
+    if (result.status === 'ready') {
+      expect(result.rect).toEqual({ x: 34, y: 86, width: 120, height: 15 })
+      expect(result.localSize).toEqual({ width: 80, height: 30 })
+    }
+  })
+
+  it('continues to reject pseudo rotations, scaling, perspective and independent transforms', () => {
+    const { element, pseudoStyle, read } = fixture()
+    for (const transform of [
+      'matrix(0, 1, -1, 0, 0, 0)',
+      'matrix(1.1, 0, 0, 1, 0, 0)',
+      'matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)',
+      'matrix(1, 0, 0, 1, NaN, 0)',
+    ]) {
+      pseudoStyle.transform = transform
+      expect(measurePseudoBox(element, '::before', read)).toMatchObject({
+        status: 'unsupported',
+        detail: 'PSEUDO_TRANSFORM',
+      })
+    }
+    pseudoStyle.transform = 'none'
+    Object.defineProperty(pseudoStyle, 'translate', { configurable: true, value: '1px' })
+    expect(measurePseudoBox(element, '::before', read)).toMatchObject({
+      status: 'unsupported',
+      detail: 'PSEUDO_TRANSFORM',
+    })
+  })
+
   it('multiplies nested ancestor scales and handles right and bottom positioning', () => {
     const { element, pseudoStyle, parentStyle } = fixture()
     const wrapper = document.createElement('div')

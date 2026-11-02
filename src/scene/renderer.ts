@@ -36,6 +36,7 @@ uniform float u_radius;
 uniform float u_blur;
 uniform float u_pixelRatio;
 uniform float u_opacity;
+uniform float u_brightness;
 uniform float u_saturation;
 uniform float u_magnification;
 uniform float u_thickness;
@@ -90,7 +91,8 @@ void main() {
   }
   if (clipCoverage <= 0.0) discard;
   if (u_mode == 0) {
-    gl_FragColor = texture2D(u_source, vec2(v_local.x, 1.0 - v_local.y)) * clipCoverage;
+    vec4 pixel = texture2D(u_source, vec2(v_local.x, 1.0 - v_local.y));
+    gl_FragColor = vec4(pixel.rgb * u_brightness, pixel.a) * clipCoverage;
     return;
   }
 
@@ -106,13 +108,14 @@ void main() {
   if (u_mode == 3) {
     vec2 uv = (v_local - u_media.xy) / u_media.zw;
     if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) discard;
-    gl_FragColor = texture2D(u_source, vec2(uv.x, 1.0 - uv.y)) * coverage;
+    vec4 pixel = texture2D(u_source, vec2(uv.x, 1.0 - uv.y));
+    gl_FragColor = vec4(pixel.rgb * u_brightness, pixel.a) * coverage;
     return;
   }
 
   if (u_mode == 1) {
     float alpha = u_color.a * coverage;
-    gl_FragColor = vec4(u_color.rgb * alpha, alpha);
+    gl_FragColor = vec4(u_color.rgb * alpha * u_brightness, alpha);
     return;
   }
 
@@ -312,6 +315,7 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
       blur: uniform('u_blur'),
       pixelRatio: uniform('u_pixelRatio'),
       opacity: uniform('u_opacity'),
+      brightness: uniform('u_brightness'),
       saturation: uniform('u_saturation'),
       magnification: uniform('u_magnification'),
       thickness: uniform('u_thickness'),
@@ -525,6 +529,7 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
 
     const setClip = (item: SceneItem, frame: SceneFrame): boolean => {
       context.uniform1f(uniforms.opacity, Math.max(0, Math.min(1, item.opacity)))
+      context.uniform1f(uniforms.brightness, item.brightness ?? 1)
       const clips = sceneClips(item)
       if (clips.length > MAX_SCENE_CLIPS) throw new Error('Scene clip stack is too deep')
       context.uniform1i(uniforms.clipCount, clips.length)
@@ -797,6 +802,7 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
           context.disable(context.SCISSOR_TEST)
           context.uniform1i(uniforms.clipCount, 0)
           context.uniform1f(uniforms.opacity, 1)
+          context.uniform1f(uniforms.brightness, 1)
           drawSprite(sceneTexture, viewport)
           return !context.isContextLost()
         } catch {

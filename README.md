@@ -113,16 +113,16 @@ export function FixedNavigation() {
 ```
 
 The container must be inside the scene, use `position: fixed`, and have no scale. Its
-ancestors must not use `transform`, `perspective`, or `filter`; every registered pane must
-be inside the container. Unsupported geometry reports `fallback` and keeps native HTML
-visible. Omitting `canvasContainer` keeps the default canvas placement.
+ancestors must not use `transform`, `perspective`, or `filter`; every
+registered pane must be inside the container. Unsupported geometry reports `fallback` and
+keeps native HTML visible. Omitting `canvasContainer` keeps the default canvas placement.
 Passing `null` waits for the fixed element to mount before starting the scene.
 
 All panes must fit inside one enclosing pane, which must fit inside the scene and viewport. Glass-only mode requires `shapeRoundness={2}`, `shadowFactor={0}` and CSS `clip-path` support.
 
 In glass-only mode, the scene can briefly retain its last rendered frame while images or SVGs load. `onStatusChange` reports `pending` during this interval; the previous backdrop can remain visible until the new frame is ready. If loading takes too long or the scene encounters unsupported content, it reports `fallback` and shows the original HTML.
 
-When the scene cannot compile part of the page, the original HTML remains visible and the scene reports the reason. Some generated content, masks, CSS effects, deeply nested clipping, rotation, perspective, iframes, Shadow DOM, and active native editing controls remain unsupported. Portals outside the scene are not captured, and text selection is not mirrored into the canvas. Cross-origin media needs CORS permission.
+When the scene cannot compile part of the page, the original HTML remains visible and the scene reports the reason. The scene supports a single darkening `brightness()` filter from `0` through `1`, and pure 2D translations on supported positioned pseudo-elements. Filtered groups containing glass or group opacity, other filters, brightening values, rotations, masks, deeply nested clipping, perspective, iframes, Shadow DOM, and active native editing controls remain unsupported. Portals outside the scene are not captured, and text selection is not mirrored into the canvas. Cross-origin media needs CORS permission.
 
 ## Glass options
 

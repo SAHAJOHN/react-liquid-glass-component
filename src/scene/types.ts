@@ -34,6 +34,8 @@ interface SceneBase {
   rect: SceneRect
   space: 'document' | 'viewport'
   opacity: number
+  /** Multiplicative darkening for a supported CSS brightness filter. */
+  brightness?: number
   clip?: SceneClip
   /** Full ancestor clip stack; when present this replaces the legacy single clip. */
   clips?: readonly SceneClip[]
@@ -83,6 +85,7 @@ export interface SceneTarget {
   element: HTMLElement
   rect: SceneRect
   space: 'document' | 'viewport'
+  brightness?: number
 }
 export interface SamplingWatch {
   element: HTMLImageElement | SVGSVGElement

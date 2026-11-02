@@ -82,6 +82,25 @@ const axisScale = (value: string): { x: number; y: number } | null => {
   return null
 }
 
+/** A pure translation has no transform-origin or raster-size effect. */
+const axisTranslation = (value: string): { x: number; y: number } | null => {
+  if (none(value)) return { x: 0, y: 0 }
+  const match = /^matrix\(([^()]*)\)$/.exec(value)
+  if (!match?.[1]) return null
+  const parts = match[1].split(',').map((part) => part.trim())
+  if (parts.length !== 6 || parts.some((part) => !part)) return null
+  const values = parts.map(Number)
+  if (
+    values.every(Number.isFinite) &&
+    values[0] === 1 &&
+    values[1] === 0 &&
+    values[2] === 0 &&
+    values[3] === 1
+  )
+    return { x: values[4] ?? 0, y: values[5] ?? 0 }
+  return null
+}
+
 /** Recognize only the opaque two-layer XOR mask used to create a padding-width ring. */
 function ringMaskDetail(style: CSSStyleDeclaration): PseudoMaskDetail | null {
   const black =
@@ -329,7 +348,8 @@ export function measurePseudoBox(
     reason: 'Pseudo-element effects require native HTML rendering',
     detail,
   })
-  if (!none(style.transform) || !none(style.translate) || !none(style.rotate) || !none(style.scale))
+  const translation = axisTranslation(style.transform)
+  if (!translation || !none(style.translate) || !none(style.rotate) || !none(style.scale))
     return unsupportedEffect('PSEUDO_TRANSFORM')
   if (!none(style.filter)) return unsupportedEffect('PSEUDO_FILTER')
   if (!none(style.backdropFilter) || !none(style.getPropertyValue('-webkit-backdrop-filter')))
@@ -428,10 +448,12 @@ export function measurePseudoBox(
     return unsupported('Over-constrained pseudo-element layout requires native HTML rendering')
   const x =
     parentRect.left +
-    ((parentBorderLeft ?? 0) + (left ?? parentWidth - (right ?? 0) - width)) * scaleX
+    ((parentBorderLeft ?? 0) + (left ?? parentWidth - (right ?? 0) - width) + translation.x) *
+      scaleX
   const y =
     parentRect.top +
-    ((parentBorderTop ?? 0) + (top ?? parentHeight - (bottom ?? 0) - height)) * scaleY
+    ((parentBorderTop ?? 0) + (top ?? parentHeight - (bottom ?? 0) - height) + translation.y) *
+      scaleY
   if (![x, y, width * scaleX, height * scaleY].every(Number.isFinite))
     return unsupported('Pseudo-element geometry is invalid')
   if (style.backgroundImage.includes('url('))

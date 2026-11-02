@@ -164,10 +164,14 @@ export function SceneWithStatus() {
 ```
 
 Unsupported CSS/DOM keeps original HTML visible and reports fallback reasons. Current limits
-include some CSS effects, generated pseudo-content and masks, rotation/perspective,
-iframes, Shadow DOM, deeply nested clipping and active native editing controls. Translate,
-scale and opacity animations are tracked. Text selection is not mirrored into the canvas;
-cross-origin media needs CORS.
+include unsupported CSS effects, generated pseudo-content and masks, rotation/perspective,
+iframes, Shadow DOM, deeply nested clipping and active native editing controls. A single
+`brightness()` filter is supported when its value darkens from `0` through `1`, provided the
+filtered group has no glass descendants or group opacity. Other filter functions and brightening
+values fall back to native HTML. Pure 2D translations on supported
+positioned pseudo-elements are supported, while rotation and scaling remain unsupported.
+Translate, scale and opacity animations are tracked. Text selection is not mirrored into the
+canvas; cross-origin media needs CORS.
 
 `presentation="glass-only"` shows the canvas only inside one enclosing pane. All registered
 panes must fit inside it, and it must fit inside the scene and viewport. This mode requires
@@ -197,9 +201,9 @@ return (
 ```
 
 The container must be inside the scene, use `position: fixed`, and have no scale. Its
-ancestors must not use `transform`, `perspective`, or `filter`; every registered pane must
-be inside the container. Unsupported geometry reports `fallback` and keeps native HTML
-visible. Omitting the prop keeps the default canvas placement.
+ancestors must not use `transform`, `perspective`, or `filter`; every
+registered pane must be inside the container. Unsupported geometry reports `fallback` and
+keeps native HTML visible. Omitting the prop keeps the default canvas placement.
 Passing `null` waits for the container to mount before starting the scene.
 
 ## `ScrollEdge`
