@@ -146,6 +146,7 @@ and canvas content from its children. Consumers do not create a canvas or add ma
 | `maxPixelRatio`               | `number`          |                     `2` | Backing resolution cap and mobile pixel-budget input. |
 | `presentation`                | `'scene' \| 'glass-only'` |              `'scene'` | Canvas coverage; `glass-only` retains native content outside the pane. |
 | `onStatusChange`              | `(state) => void` |                       — | Receives `ready`, `pending`, or `fallback` with reasons. |
+| `canvasContainer`             | `HTMLElement \| null` | — | In `glass-only`, mounts the canvas inside a fixed container that contains every managed pane. |
 | `children`, `ref`, HTML attrs | React/HTML types  |                       — | Normal React content and root attributes.             |
 
 ```tsx
@@ -175,6 +176,31 @@ remains native and interactive. Unsupported content or geometry reports `fallbac
 During a short pending image or SVG load, this mode can retain the last rendered frame and report
 `pending`; the visible backdrop may briefly belong to the previous frame. A prolonged load or
 unsupported content reports `fallback` and restores native HTML.
+
+For a fixed navigation bar on iOS, pass `canvasContainer` with the fixed element that contains
+every registered pane. The scene portals its canvas into that element so the
+canvas and native controls stay together during elastic scrolling:
+
+```tsx
+const [navigation, setNavigation] = useState<HTMLElement | null>(null)
+
+return (
+  <LiquidGlassScene presentation="glass-only" canvasContainer={navigation}>
+    <main>Page content</main>
+    <nav ref={setNavigation} style={{ position: 'fixed' }}>
+      <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0}>
+        <button type="button">Open</button>
+      </LiquidGlass>
+    </nav>
+  </LiquidGlassScene>
+)
+```
+
+The container must be inside the scene, use `position: fixed`, and have no scale. Its
+ancestors must not use `transform`, `perspective`, or `filter`; every registered pane must
+be inside the container. Unsupported geometry reports `fallback` and keeps native HTML
+visible. Omitting the prop keeps the default canvas placement.
+Passing `null` waits for the container to mount before starting the scene.
 
 ## `ScrollEdge`
 

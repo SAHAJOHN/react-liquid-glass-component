@@ -75,6 +75,7 @@ export function Page() {
 | `maxPixelRatio`  | `2`                        | Backing resolution cap.                                              |
 | `presentation`   | `scene`                    | Show the whole scene or use `glass-only` to limit it to a pane.      |
 | `onStatusChange` | —                          | Receives `ready`, `pending`, or `fallback`; the latter include reasons. |
+| `canvasContainer` | —                    | Optional fixed container for the composed canvas in `glass-only` mode. |
 
 For a fixed navigation bar, `presentation="glass-only"` keeps the surrounding page native and shows the canvas inside one enclosing pane:
 
@@ -86,6 +87,36 @@ For a fixed navigation bar, `presentation="glass-only"` keeps the surrounding pa
   </LiquidGlass>
 </LiquidGlassScene>
 ```
+
+For a fixed navigation bar on iOS, pass the fixed element that contains every managed pane.
+The scene mounts its canvas inside that element so the canvas and native
+controls stay together during elastic scrolling:
+
+```tsx
+import { useState } from 'react'
+import { LiquidGlass, LiquidGlassScene } from 'react-liquid-glass-component'
+
+export function FixedNavigation() {
+  const [navigation, setNavigation] = useState<HTMLElement | null>(null)
+
+  return (
+    <LiquidGlassScene presentation="glass-only" canvasContainer={navigation}>
+      <main>Page content</main>
+      <nav ref={setNavigation} style={{ position: 'fixed' }}>
+        <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0}>
+          <button type="button">Open</button>
+        </LiquidGlass>
+      </nav>
+    </LiquidGlassScene>
+  )
+}
+```
+
+The container must be inside the scene, use `position: fixed`, and have no scale. Its
+ancestors must not use `transform`, `perspective`, or `filter`; every registered pane must
+be inside the container. Unsupported geometry reports `fallback` and keeps native HTML
+visible. Omitting `canvasContainer` keeps the default canvas placement.
+Passing `null` waits for the fixed element to mount before starting the scene.
 
 All panes must fit inside one enclosing pane, which must fit inside the scene and viewport. Glass-only mode requires `shapeRoundness={2}`, `shadowFactor={0}` and CSS `clip-path` support.
 

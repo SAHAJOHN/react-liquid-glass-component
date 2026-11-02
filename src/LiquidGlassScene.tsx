@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useMemo, useRef, type HTMLAttributes } from 'react'
+import { createPortal } from 'react-dom'
 import { styled } from 'styled-components'
 import { LiquidGlassSceneContext, type SceneController } from './scene/context'
 import type { GlassOptions } from './scene/types'
@@ -16,6 +17,8 @@ export interface LiquidGlassSceneProps extends HTMLAttributes<HTMLDivElement> {
   maxPixelRatio?: number
   /** Present only one enclosing pane; native page content stays visible elsewhere. */
   presentation?: 'scene' | 'glass-only'
+  /** Fixed container enclosing every pane, used to keep the canvas with native controls. */
+  canvasContainer?: HTMLElement | null
   /** Reports unsupported content or GPU failure without hiding the original HTML. */
   onStatusChange?: (state: LiquidGlassSceneStatus) => void
 }
@@ -31,7 +34,7 @@ const SceneStyled = styled.div.withConfig({ componentId: 'liquid-glass-scene-roo
     display: flow-root;
   }
 
-  > .liquid-glass-scene__canvas {
+  .liquid-glass-scene__canvas {
     position: fixed;
     top: 0;
     left: 0;
@@ -42,8 +45,8 @@ const SceneStyled = styled.div.withConfig({ componentId: 'liquid-glass-scene-roo
     opacity: 0;
   }
 
-  &[data-liquid-glass-scene-ready='true'] > .liquid-glass-scene__canvas,
-  &[data-liquid-glass-scene-pending='true'] > .liquid-glass-scene__canvas {
+  &[data-liquid-glass-scene-ready='true'] .liquid-glass-scene__canvas,
+  &[data-liquid-glass-scene-pending='true'] .liquid-glass-scene__canvas {
     opacity: 1;
   }
 `
@@ -51,7 +54,15 @@ const SceneStyled = styled.div.withConfig({ componentId: 'liquid-glass-scene-roo
 /** Owns the canvas and automatically composes supported HTML behind LiquidGlass. */
 export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps>(
   (
-    { children, background, maxPixelRatio = 2, presentation = 'scene', onStatusChange, ...props },
+    {
+      children,
+      background,
+      maxPixelRatio = 2,
+      presentation = 'scene',
+      canvasContainer,
+      onStatusChange,
+      ...props
+    },
     forwardedRef
   ) => {
     const root = useRef<HTMLDivElement | null>(null)
@@ -94,8 +105,25 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
       background,
       maxPixelRatio,
       presentation,
+      canvasContainer: canvasContainer ?? null,
       onStatusChange,
     })
+
+    const output = (
+      <canvas
+        ref={canvas}
+        className="liquid-glass-scene__canvas"
+        data-liquid-glass-scene-canvas=""
+        width={0}
+        height={0}
+        aria-hidden="true"
+        style={
+          canvasContainer
+            ? { position: 'absolute', zIndex: 2147483647, pointerEvents: 'none', opacity: 0 }
+            : undefined
+        }
+      />
+    )
 
     return (
       <LiquidGlassSceneContext.Provider value={controller}>
@@ -103,14 +131,11 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
           <div ref={content} className="liquid-glass-scene__content">
             {children}
           </div>
-          <canvas
-            ref={canvas}
-            className="liquid-glass-scene__canvas"
-            data-liquid-glass-scene-canvas=""
-            width={0}
-            height={0}
-            aria-hidden="true"
-          />
+          {canvasContainer === undefined
+            ? output
+            : canvasContainer
+              ? createPortal(output, canvasContainer)
+              : null}
         </SceneStyled>
       </LiquidGlassSceneContext.Provider>
     )

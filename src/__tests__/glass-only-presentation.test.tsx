@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { StrictMode, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LiquidGlass, LiquidGlassScene } from '../index'
 import * as compilerModule from '../scene/dom-scene'
@@ -117,6 +118,113 @@ describe('glass-only scene presentation', () => {
     expect(container.querySelector('canvas')?.style.clipPath).toBe(
       'inset(680px 30px 40px 30px round 40px)'
     )
+  })
+
+  it('keeps an anchored canvas and native controls together during elastic movement', () => {
+    vi.spyOn(continuityModule, 'externalSiblingsAvoidRegion').mockReturnValue(true)
+    document.body.style.backgroundColor = 'rgb(255, 255, 255)'
+    for (const [key, value] of Object.entries({
+      scrollHeight: 1200,
+      clientHeight: 800,
+      scrollWidth: 400,
+      clientWidth: 400,
+    }))
+      Object.defineProperty(document.documentElement, key, { configurable: true, value })
+    const onClick = vi.fn()
+    function AnchoredFixture() {
+      const [nav, setNav] = useState<HTMLElement | null>(null)
+      return (
+        <LiquidGlassScene presentation="glass-only" canvasContainer={nav}>
+          <nav ref={setNav} style={{ position: 'fixed' }}>
+            <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0} />
+            <button onClick={onClick}>Nav button</button>
+          </nav>
+        </LiquidGlassScene>
+      )
+    }
+    const { container, unmount } = render(
+      <StrictMode>
+        <AnchoredFixture />
+      </StrictMode>
+    )
+    const host = container.querySelector('[data-liquid-glass-scene]')
+    const pane = container.querySelector('.liquid-glass')
+    const nav = container.querySelector('nav')
+    const canvas = nav?.querySelector('canvas')
+    if (!host || !pane || !nav || !canvas) throw new Error('Missing scene elements')
+    mockRect(host, { x: 0, y: 0, width: 400, height: 1200 })
+    mockRect(nav, { x: 20, y: 700, width: 360, height: 70 })
+    mockRect(pane, { x: 20, y: 700, width: 360, height: 70 })
+    tick()
+    expect(host).toHaveAttribute('data-liquid-glass-scene-ready', 'true')
+    expect(canvas.style.opacity).toBe('1')
+    expect(canvas.style.pointerEvents).toBe('none')
+    expect(canvas.style.left).toBe('-20px')
+    expect(canvas.style.top).toBe('-700px')
+    expect(canvas.style.clipPath).toBe('inset(700px 20px 30px 20px round 35px)')
+    fireEvent.click(screen.getByRole('button', { name: 'Nav button' }))
+    expect(onClick).toHaveBeenCalledOnce()
+
+    vi.stubGlobal('scrollY', -80)
+    mockRect(host, { x: 0, y: 80, width: 400, height: 1200 })
+    mockRect(nav, { x: 20, y: 720, width: 360, height: 70 })
+    mockRect(pane, { x: 20, y: 720, width: 360, height: 70 })
+    act(() => window.dispatchEvent(new Event('scroll')))
+    tick()
+    expect(host).toHaveAttribute('data-liquid-glass-scene-ready', 'true')
+    expect(canvas.style.top).toBe('-720px')
+    expect(canvas.style.clipPath).toBe('inset(720px 20px 10px 20px round 35px)')
+
+    vi.stubGlobal('scrollY', 400)
+    mockRect(host, { x: 0, y: -400, width: 400, height: 1200 })
+    mockRect(nav, { x: 20, y: 700, width: 360, height: 70 })
+    mockRect(pane, { x: 20, y: 700, width: 360, height: 70 })
+    act(() => window.dispatchEvent(new Event('scroll')))
+    tick()
+    vi.stubGlobal('scrollY', 480)
+    mockRect(host, { x: 0, y: -480, width: 400, height: 1200 })
+    mockRect(nav, { x: 20, y: 650, width: 360, height: 70 })
+    mockRect(pane, { x: 20, y: 650, width: 360, height: 70 })
+    act(() => window.dispatchEvent(new Event('scroll')))
+    tick()
+    expect(host).toHaveAttribute('data-liquid-glass-scene-ready', 'true')
+    expect(canvas.style.top).toBe('-650px')
+    expect(canvas.style.clipPath).toBe('inset(650px 20px 80px 20px round 35px)')
+    expect(renderFrame).toHaveBeenLastCalledWith(expect.objectContaining({ scrollY: 480 }))
+    unmount()
+    expect(nav.querySelector('canvas')).toBeNull()
+  })
+
+  it('rejects a canvas container that is not fixed', () => {
+    const onStatusChange = vi.fn()
+    function Fixture() {
+      const [target, setTarget] = useState<HTMLElement | null>(null)
+      return (
+        <LiquidGlassScene
+          presentation="glass-only"
+          canvasContainer={target}
+          onStatusChange={onStatusChange}
+        >
+          <nav ref={setTarget} style={{ position: 'relative' }}>
+            <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0} />
+          </nav>
+        </LiquidGlassScene>
+      )
+    }
+    const { container } = render(<Fixture />)
+    const host = container.querySelector('[data-liquid-glass-scene]')
+    const pane = container.querySelector('.liquid-glass')
+    if (!host || !pane) throw new Error('Missing scene elements')
+    mockRect(host, { x: 0, y: 0, width: 400, height: 800 })
+    mockRect(pane, { x: 20, y: 700, width: 360, height: 70 })
+    tick()
+    expect(onStatusChange).toHaveBeenLastCalledWith({
+      status: 'fallback',
+      reasons: [
+        'Canvas container must be an unscaled fixed ancestor of every glass-only pane inside the scene.',
+      ],
+    })
+    expect(container.querySelector('canvas')?.style.opacity).toBe('0')
   })
 
   it('fails closed for disjoint panes and leaves native HTML visible', () => {

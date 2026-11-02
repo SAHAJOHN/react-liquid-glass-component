@@ -27,6 +27,7 @@ interface Options {
   background: string | undefined
   maxPixelRatio: number
   presentation: 'scene' | 'glass-only'
+  canvasContainer: HTMLElement | null
   onStatusChange: ((state: LiquidGlassSceneStatus) => void) | undefined
 }
 
@@ -170,8 +171,17 @@ function measureGlassOnlyClip(
 }
 
 export function useScene(options: Options): void {
-  const { root, content, canvas, glasses, invalidate, background, maxPixelRatio, presentation } =
-    options
+  const {
+    root,
+    content,
+    canvas,
+    glasses,
+    invalidate,
+    background,
+    maxPixelRatio,
+    presentation,
+    canvasContainer,
+  } = options
   const callback = useRef(options.onStatusChange)
   useEffect(() => {
     callback.current = options.onStatusChange
@@ -233,6 +243,7 @@ export function useScene(options: Options): void {
       if (state.status === 'ready') host.setAttribute('data-liquid-glass-scene-ready', 'true')
       if (state.status === 'pending') host.setAttribute('data-liquid-glass-scene-pending', 'true')
       else host.removeAttribute('data-liquid-glass-scene-pending')
+      if (canvasContainer) output.style.opacity = state.status === 'fallback' ? '0' : '1'
       host.dispatchEvent(new CustomEvent('liquid-glass:scene-status', { detail: state }))
       callback.current?.(state)
     }
@@ -264,6 +275,18 @@ export function useScene(options: Options): void {
       if (disposed || document.hidden || lost) return
       const width = window.innerWidth
       const height = window.innerHeight
+      if (canvasContainer) {
+        const rect = canvasContainer.getBoundingClientRect()
+        const styles = {
+          left: `${-rect.left - canvasContainer.clientLeft}px`,
+          top: `${-rect.top - canvasContainer.clientTop}px`,
+          width: `${width}px`,
+          height: `${height}px`,
+        }
+        for (const [key, value] of Object.entries(styles)) {
+          if (output.style.getPropertyValue(key) !== value) output.style.setProperty(key, value)
+        }
+      }
       const pixelRatio = Math.min(
         window.devicePixelRatio || 1,
         Number.isFinite(maxPixelRatio) && maxPixelRatio > 0 ? maxPixelRatio : 2,
@@ -430,6 +453,45 @@ export function useScene(options: Options): void {
               compiled.issues.push(
                 'Apply opacity to scene content rather than the LiquidGlassScene wrapper.'
               )
+            if (canvasContainer) {
+              const containerStyle = getComputedStyle(canvasContainer)
+              const matrix =
+                containerStyle.transform && containerStyle.transform !== 'none'
+                  ? new DOMMatrixReadOnly(containerStyle.transform)
+                  : undefined
+              if (
+                presentation !== 'glass-only' ||
+                !source.contains(canvasContainer) ||
+                containerStyle.position !== 'fixed' ||
+                (matrix &&
+                  (!matrix.is2D ||
+                    matrix.a !== 1 ||
+                    matrix.d !== 1 ||
+                    matrix.b !== 0 ||
+                    matrix.c !== 0)) ||
+                [...glasses.current.keys()].some((pane) => !canvasContainer.contains(pane))
+              )
+                compiled.issues.push(
+                  'Canvas container must be an unscaled fixed ancestor of every glass-only pane inside the scene.'
+                )
+              for (
+                let ancestor = canvasContainer.parentElement;
+                ancestor && ancestor !== source;
+                ancestor = ancestor.parentElement
+              ) {
+                const ancestorStyle = getComputedStyle(ancestor)
+                if (
+                  [ancestorStyle.transform, ancestorStyle.perspective, ancestorStyle.filter].some(
+                    (value) => value && value !== 'none'
+                  )
+                ) {
+                  compiled.issues.push(
+                    'Canvas container needs ancestors without transform, perspective or filter.'
+                  )
+                  break
+                }
+              }
+            }
             dirty = false
             generation += 1
             if (!compiled.issues.length) {
@@ -642,7 +704,10 @@ export function useScene(options: Options): void {
       }
     }
 
-    const mutation = new MutationObserver(markDirty)
+    const mutation = new MutationObserver((records) => {
+      if (records.some((record) => record.target !== output && !output.contains(record.target)))
+        markDirty()
+    })
     mutation.observe(source, {
       subtree: true,
       childList: true,
@@ -724,5 +789,15 @@ export function useScene(options: Options): void {
       host.removeAttribute('data-liquid-glass-scene-ready')
       host.removeAttribute('data-liquid-glass-scene-pending')
     }
-  }, [root, content, canvas, glasses, invalidate, background, maxPixelRatio, presentation])
+  }, [
+    root,
+    content,
+    canvas,
+    glasses,
+    invalidate,
+    background,
+    maxPixelRatio,
+    presentation,
+    canvasContainer,
+  ])
 }
