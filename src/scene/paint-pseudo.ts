@@ -155,12 +155,26 @@ function ringMaskDetail(style: CSSStyleDeclaration): PseudoMaskDetail | null {
   if (!compatible(property('-webkit-mask-clip'), style.maskClip, boxPair)) return 'PSEUDO_MASK_CLIP'
   if (!compatible(property('-webkit-mask-origin'), style.maskOrigin, boxPair))
     return 'PSEUDO_MASK_ORIGIN'
+  const standardComposite = (value: string) =>
+    equalLayers(value, 'exclude') || pair(value, 'exclude', 'add')
+  const legacyComposite = (value: string) =>
+    equalLayers(value, 'xor') || pair(value, 'xor', 'source-over')
+  const prefixedComposite = property('-webkit-mask-composite')
+  // Blink aliases both properties and may serialize either keyword family
+  // through both names. Accept legacy names on the standard property only
+  // when the prefixed alias returns the same supported value.
+  const matchingLegacyAlias = (value: string) =>
+    legacyComposite(value) &&
+    splitCss(value).map((part) => part.trim()).join(',') ===
+      splitCss(prefixedComposite).map((part) => part.trim()).join(',')
   if (
     !compatible(
-      property('-webkit-mask-composite'),
+      prefixedComposite,
       style.maskComposite,
-      (value) => equalLayers(value, 'xor') || pair(value, 'xor', 'source-over'),
-      (value) => equalLayers(value, 'exclude') || pair(value, 'exclude', 'add')
+      (value) =>
+        legacyComposite(value) ||
+        (standardComposite(style.maskComposite ?? '') && standardComposite(value)),
+      (value) => standardComposite(value) || matchingLegacyAlias(value)
     )
   )
     return 'PSEUDO_MASK_COMPOSITE'

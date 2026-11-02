@@ -274,6 +274,11 @@ describe('pseudo-element measurement', () => {
       pseudoStyle.maskComposite = composite
       expect(measurePseudoBox(element, '::before', read).status, composite).toBe('ready')
     }
+    for (const composite of ['xor', 'xor, xor', 'xor, source-over']) {
+      properties['-webkit-mask-composite'] = composite
+      pseudoStyle.maskComposite = composite
+      expect(measurePseudoBox(element, '::before', read).status, composite).toBe('ready')
+    }
   })
 
   it('accepts one repeated size, repeat, position and mode value for the two layers', () => {
@@ -333,6 +338,32 @@ describe('pseudo-element measurement', () => {
       maskPosition: { value: '0% 0%, 0px 0px' },
     })
     expect(measurePseudoBox(element, '::before', read).status).toBe('ready')
+  })
+
+  it('accepts Chromium standard values exposed by both composite property names', () => {
+    const { element, pseudoStyle, properties, read } = ringFixture()
+    for (const composite of ['exclude', 'exclude, exclude', 'exclude, add']) {
+      properties['-webkit-mask-composite'] = composite
+      pseudoStyle.maskComposite = composite
+      expect(measurePseudoBox(element, '::before', read).status, composite).toBe('ready')
+    }
+    properties['-webkit-mask-composite'] = 'exclude, exclude'
+    pseudoStyle.maskComposite = 'add, exclude'
+    expect(measurePseudoBox(element, '::before', read)).toMatchObject({
+      status: 'unsupported',
+      detail: 'PSEUDO_MASK_COMPOSITE',
+    })
+    pseudoStyle.maskComposite = ''
+    expect(measurePseudoBox(element, '::before', read)).toMatchObject({
+      status: 'unsupported',
+      detail: 'PSEUDO_MASK_COMPOSITE',
+    })
+    properties['-webkit-mask-composite'] = 'xor, xor'
+    pseudoStyle.maskComposite = 'xor, source-over'
+    expect(measurePseudoBox(element, '::before', read)).toMatchObject({
+      status: 'unsupported',
+      detail: 'PSEUDO_MASK_COMPOSITE',
+    })
   })
 
   it('continues to reject non-equivalent composite and layer values', () => {
