@@ -137,10 +137,6 @@ function measureGlassOnlyClip(
   const outer = panes.reduce((largest, pane) =>
     pane.rect.width * pane.rect.height > largest.rect.width * largest.rect.height ? pane : largest
   )
-  const shifted = panes.map((pane) => ({
-    ...pane,
-    rect: { ...pane.rect, x: pane.rect.x + left, y: pane.rect.y + top },
-  }))
   const expandedHost = {
     x: hostRect.x,
     y: hostRect.y,
@@ -153,13 +149,22 @@ function measureGlassOnlyClip(
   const invisibleRight = Math.max(0, outer.rect.x + outer.rect.width - viewport.width)
   const invisibleTop = Math.max(0, -outer.rect.y)
   const invisibleBottom = Math.max(0, outer.rect.y + outer.rect.height - viewport.height)
-  expandedHost.x -= invisibleLeft
-  expandedHost.y -= invisibleTop
   expandedHost.width += invisibleLeft + invisibleRight
   expandedHost.height += invisibleTop + invisibleBottom
+  const shifted = panes.map((pane) => ({
+    ...pane,
+    rect: {
+      ...pane.rect,
+      x: pane.rect.x + left + invisibleLeft,
+      y: pane.rect.y + top + invisibleTop,
+    },
+  }))
   const validated = getGlassOnlyClip(
     shifted,
-    { width: viewport.width + left + right, height: viewport.height + top + bottom },
+    {
+      width: viewport.width + left + right + invisibleLeft + invisibleRight,
+      height: viewport.height + top + bottom + invisibleTop + invisibleBottom,
+    },
     expandedHost
   )
   if (validated.status !== 'ready') return validated
@@ -252,10 +257,12 @@ export function useScene(options: Options): void {
       if (pendingTimer !== undefined) clearTimeout(pendingTimer)
       pendingTimer = undefined
     }
-    const fallback = (reasons: readonly string[]) => {
+    const fallback = (reasons: readonly string[], preserveElasticBaseline = false) => {
       clearPending()
-      hasCompleteFrame = false
-      elasticBaseline = undefined
+      if (!preserveElasticBaseline) {
+        hasCompleteFrame = false
+        elasticBaseline = undefined
+      }
       report({ status: 'fallback', reasons })
     }
     const cancel = () => {
@@ -565,7 +572,15 @@ export function useScene(options: Options): void {
               } else fallback(compiled.issues)
             } else fallback(compiled.issues)
           } else if (glassOnly?.status === 'fallback') {
-            fallback([glassOnly.reason])
+            // Keep the last baseline only for transient bounds failures while
+            // bouncing. A later frame must pass every elastic safety check again.
+            fallback(
+              [glassOnly.reason],
+              bouncing &&
+                hasCompleteFrame &&
+                glassOnly.reason ===
+                  'Glass-only presentation requires the enclosing pane inside the scene and viewport.'
+            )
           } else if (!glassClipSupported) {
             fallback(['Glass-only presentation needs CSS clip-path support.'])
           } else if (!renderer || !renderer.render(current)) {

@@ -195,6 +195,283 @@ describe('glass-only scene presentation', () => {
     expect(nav.querySelector('canvas')).toBeNull()
   })
 
+  it.each([
+    { edge: 'top', initialScroll: 0, bouncedScroll: -80, initialTop: 700, bouncedTop: 780 },
+    { edge: 'bottom', initialScroll: 400, bouncedScroll: 480, initialTop: 10, bouncedTop: -60 },
+  ])(
+    'keeps the anchored pane visible when $edge overscroll moves it partly outside the viewport',
+    ({ initialScroll, bouncedScroll, initialTop, bouncedTop }) => {
+      vi.spyOn(continuityModule, 'externalSiblingsAvoidRegion').mockReturnValue(true)
+      document.body.style.backgroundColor = 'rgb(255, 255, 255)'
+      for (const [key, value] of Object.entries({
+        scrollHeight: 1200,
+        clientHeight: 800,
+        scrollWidth: 400,
+        clientWidth: 400,
+      }))
+        Object.defineProperty(document.documentElement, key, { configurable: true, value })
+      vi.stubGlobal('scrollY', initialScroll)
+      const onStatusChange = vi.fn()
+      function Fixture() {
+        const [nav, setNav] = useState<HTMLElement | null>(null)
+        return (
+          <LiquidGlassScene
+            presentation="glass-only"
+            canvasContainer={nav}
+            onStatusChange={onStatusChange}
+          >
+            <nav ref={setNav} style={{ position: 'fixed' }}>
+              <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0} />
+            </nav>
+          </LiquidGlassScene>
+        )
+      }
+      const { container } = render(<Fixture />)
+      const host = container.querySelector('[data-liquid-glass-scene]')
+      const pane = container.querySelector('.liquid-glass')
+      const nav = container.querySelector('nav')
+      const canvas = nav?.querySelector('canvas')
+      if (!host || !pane || !nav || !canvas) throw new Error('Missing scene elements')
+      mockRect(host, { x: 0, y: -initialScroll, width: 400, height: 1200 })
+      mockRect(nav, { x: 20, y: initialTop, width: 360, height: 70 })
+      mockRect(pane, { x: 20, y: initialTop, width: 360, height: 70 })
+      tick()
+      expect(onStatusChange).toHaveBeenLastCalledWith({ status: 'ready' })
+      expect(canvas.style.opacity).toBe('1')
+
+      vi.stubGlobal('scrollY', bouncedScroll)
+      mockRect(host, { x: 0, y: -bouncedScroll, width: 400, height: 1200 })
+      mockRect(nav, { x: 20, y: bouncedTop, width: 360, height: 70 })
+      mockRect(pane, { x: 20, y: bouncedTop, width: 360, height: 70 })
+      act(() => window.dispatchEvent(new Event('scroll')))
+      tick()
+      expect(onStatusChange).toHaveBeenLastCalledWith({ status: 'ready' })
+      expect(host).toHaveAttribute('data-liquid-glass-scene-ready', 'true')
+      expect(canvas.style.opacity).toBe('1')
+      expect(canvas.parentElement).toBe(nav)
+      expect(canvas.style.top).toBe(`${-bouncedTop}px`)
+      expect(canvas.style.clipPath).toBe(
+        `inset(${bouncedTop}px 20px ${800 - bouncedTop - 70}px 20px round 35px)`
+      )
+      expect(renderFrame).toHaveBeenLastCalledWith(
+        expect.objectContaining({ scrollY: bouncedScroll })
+      )
+
+      vi.stubGlobal('scrollY', initialScroll)
+      mockRect(host, { x: 0, y: -initialScroll, width: 400, height: 1200 })
+      mockRect(nav, { x: 20, y: initialTop, width: 360, height: 70 })
+      mockRect(pane, { x: 20, y: initialTop, width: 360, height: 70 })
+      act(() => window.dispatchEvent(new Event('scroll')))
+      tick()
+      expect(host).toHaveAttribute('data-liquid-glass-scene-ready', 'true')
+      expect(canvas.style.opacity).toBe('1')
+      expect(renderFrame).toHaveBeenLastCalledWith(
+        expect.objectContaining({ scrollY: initialScroll })
+      )
+    }
+  )
+
+  it.each([
+    { initialScroll: 0, bouncedScroll: -80, initialTop: 700, bouncedTop: 801 },
+    { initialScroll: 400, bouncedScroll: 480, initialTop: 10, bouncedTop: -71 },
+  ])(
+    'rejects anchored pane movement beyond the measured elastic excursion',
+    ({ initialScroll, bouncedScroll, initialTop, bouncedTop }) => {
+      vi.spyOn(continuityModule, 'externalSiblingsAvoidRegion').mockReturnValue(true)
+      document.body.style.backgroundColor = 'rgb(255, 255, 255)'
+      for (const [key, value] of Object.entries({
+        scrollHeight: 1200,
+        clientHeight: 800,
+        scrollWidth: 400,
+        clientWidth: 400,
+      }))
+        Object.defineProperty(document.documentElement, key, { configurable: true, value })
+      vi.stubGlobal('scrollY', initialScroll)
+      const onStatusChange = vi.fn()
+      function Fixture() {
+        const [nav, setNav] = useState<HTMLElement | null>(null)
+        return (
+          <LiquidGlassScene
+            presentation="glass-only"
+            canvasContainer={nav}
+            onStatusChange={onStatusChange}
+          >
+            <nav ref={setNav} style={{ position: 'fixed' }}>
+              <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0} />
+            </nav>
+          </LiquidGlassScene>
+        )
+      }
+      const { container } = render(<Fixture />)
+      const host = container.querySelector('[data-liquid-glass-scene]')
+      const pane = container.querySelector('.liquid-glass')
+      const nav = container.querySelector('nav')
+      const canvas = nav?.querySelector('canvas')
+      if (!host || !pane || !nav || !canvas) throw new Error('Missing scene elements')
+      mockRect(host, { x: 0, y: -initialScroll, width: 400, height: 1200 })
+      mockRect(nav, { x: 20, y: initialTop, width: 360, height: 70 })
+      mockRect(pane, { x: 20, y: initialTop, width: 360, height: 70 })
+      tick()
+      expect(onStatusChange).toHaveBeenLastCalledWith({ status: 'ready' })
+
+      vi.stubGlobal('scrollY', bouncedScroll)
+      mockRect(host, { x: 0, y: -bouncedScroll, width: 400, height: 1200 })
+      mockRect(nav, { x: 20, y: bouncedTop, width: 360, height: 70 })
+      mockRect(pane, { x: 20, y: bouncedTop, width: 360, height: 70 })
+      act(() => window.dispatchEvent(new Event('scroll')))
+      tick()
+      expect(onStatusChange).toHaveBeenLastCalledWith({
+        status: 'fallback',
+        reasons: [
+          'Glass-only presentation requires the enclosing pane inside the scene and viewport.',
+        ],
+      })
+      expect(canvas.style.opacity).toBe('0')
+    }
+  )
+
+  it('recovers during bounce after a temporary external sibling stops obstructing the backdrop', () => {
+    const safeSiblings = vi
+      .spyOn(continuityModule, 'externalSiblingsAvoidRegion')
+      .mockReturnValue(true)
+    document.body.style.backgroundColor = 'rgb(255, 255, 255)'
+    for (const [key, value] of Object.entries({
+      scrollHeight: 1200,
+      clientHeight: 800,
+      scrollWidth: 400,
+      clientWidth: 400,
+    }))
+      Object.defineProperty(document.documentElement, key, { configurable: true, value })
+    vi.stubGlobal('scrollY', 400)
+    const onStatusChange = vi.fn()
+    function Fixture() {
+      const [nav, setNav] = useState<HTMLElement | null>(null)
+      return (
+        <LiquidGlassScene
+          presentation="glass-only"
+          canvasContainer={nav}
+          onStatusChange={onStatusChange}
+        >
+          <nav ref={setNav} style={{ position: 'fixed' }}>
+            <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0} />
+          </nav>
+        </LiquidGlassScene>
+      )
+    }
+    const { container } = render(<Fixture />)
+    const host = container.querySelector('[data-liquid-glass-scene]')
+    const pane = container.querySelector('.liquid-glass')
+    const nav = container.querySelector('nav')
+    const canvas = nav?.querySelector('canvas')
+    if (!host || !pane || !nav || !canvas) throw new Error('Missing scene elements')
+    mockRect(host, { x: 0, y: -400, width: 400, height: 1200 })
+    mockRect(nav, { x: 20, y: 700, width: 360, height: 70 })
+    mockRect(pane, { x: 20, y: 700, width: 360, height: 70 })
+    tick()
+    expect(onStatusChange).toHaveBeenLastCalledWith({ status: 'ready' })
+
+    safeSiblings.mockReturnValue(false)
+    vi.stubGlobal('scrollY', 480)
+    mockRect(host, { x: 0, y: -480, width: 400, height: 1200 })
+    act(() => window.dispatchEvent(new Event('scroll')))
+    tick()
+    expect(onStatusChange).toHaveBeenLastCalledWith({
+      status: 'fallback',
+      reasons: [
+        'Glass-only presentation requires the enclosing pane inside the scene and viewport.',
+      ],
+    })
+    expect(canvas.style.opacity).toBe('0')
+
+    safeSiblings.mockReturnValue(true)
+    vi.stubGlobal('scrollY', 470)
+    mockRect(host, { x: 0, y: -470, width: 400, height: 1200 })
+    act(() => window.dispatchEvent(new Event('scroll')))
+    tick()
+    expect(onStatusChange).toHaveBeenLastCalledWith({ status: 'ready' })
+    expect(canvas.style.opacity).toBe('1')
+    expect(renderFrame).toHaveBeenLastCalledWith(expect.objectContaining({ scrollY: 470 }))
+
+    result.issues = ['Unsupported content']
+    vi.stubGlobal('scrollY', 480)
+    mockRect(host, { x: 0, y: -480, width: 400, height: 1200 })
+    fireEvent.pointerDown(nav)
+    tick()
+    expect(onStatusChange).toHaveBeenLastCalledWith({
+      status: 'fallback',
+      reasons: ['Unsupported content'],
+    })
+    result.issues = []
+    vi.stubGlobal('scrollY', 470)
+    mockRect(host, { x: 0, y: -470, width: 400, height: 1200 })
+    fireEvent.pointerDown(nav)
+    tick()
+    expect(onStatusChange).toHaveBeenLastCalledWith({
+      status: 'fallback',
+      reasons: [
+        'Glass-only presentation requires the enclosing pane inside the scene and viewport.',
+      ],
+    })
+    expect(canvas.style.opacity).toBe('0')
+  })
+
+  it.each([
+    { height: 799, expected: 'ready' },
+    { height: 600, expected: 'fallback' },
+  ])(
+    'handles a viewport height of $height during bounded bottom bounce',
+    ({ height, expected }) => {
+      vi.spyOn(continuityModule, 'externalSiblingsAvoidRegion').mockReturnValue(true)
+      document.body.style.backgroundColor = 'rgb(255, 255, 255)'
+      for (const [key, value] of Object.entries({
+        scrollHeight: 1200,
+        clientHeight: 800,
+        scrollWidth: 400,
+        clientWidth: 400,
+      }))
+        Object.defineProperty(document.documentElement, key, { configurable: true, value })
+      vi.stubGlobal('scrollY', 400)
+      const onStatusChange = vi.fn()
+      function Fixture() {
+        const [nav, setNav] = useState<HTMLElement | null>(null)
+        return (
+          <LiquidGlassScene
+            presentation="glass-only"
+            canvasContainer={nav}
+            onStatusChange={onStatusChange}
+          >
+            <nav ref={setNav} style={{ position: 'fixed' }}>
+              <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0} />
+            </nav>
+          </LiquidGlassScene>
+        )
+      }
+      const { container } = render(<Fixture />)
+      const host = container.querySelector('[data-liquid-glass-scene]')
+      const pane = container.querySelector('.liquid-glass')
+      const nav = container.querySelector('nav')
+      const canvas = nav?.querySelector('canvas')
+      if (!host || !pane || !nav || !canvas) throw new Error('Missing scene elements')
+      mockRect(host, { x: 0, y: -400, width: 400, height: 1200 })
+      mockRect(nav, { x: 20, y: 700, width: 360, height: 70 })
+      mockRect(pane, { x: 20, y: 700, width: 360, height: 70 })
+      tick()
+      expect(onStatusChange).toHaveBeenLastCalledWith({ status: 'ready' })
+
+      vi.stubGlobal('innerHeight', height)
+      Object.defineProperty(document.documentElement, 'clientHeight', {
+        configurable: true,
+        value: height,
+      })
+      vi.stubGlobal('scrollY', 480)
+      mockRect(host, { x: 0, y: -480, width: 400, height: 1200 })
+      act(() => window.dispatchEvent(new Event('scroll')))
+      tick()
+      expect(onStatusChange.mock.lastCall?.[0]?.status).toBe(expected)
+      expect(canvas.style.opacity).toBe(expected === 'ready' ? '1' : '0')
+    }
+  )
+
   it('rejects a canvas container that is not fixed', () => {
     const onStatusChange = vi.fn()
     function Fixture() {

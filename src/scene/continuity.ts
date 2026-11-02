@@ -303,8 +303,10 @@ export function canExpandElasticScene(
     !near(previous.host.height, current.host.height) ||
     !near(previous.documentWidth, current.documentWidth) ||
     !near(previous.documentHeight, current.documentHeight) ||
-    !near(previous.viewportWidth, current.viewportWidth) ||
-    !near(previous.viewportHeight, current.viewportHeight) ||
+    // Safari can report a small viewport adjustment while rubber-banding.
+    // All document, host and pane dimensions are still checked independently.
+    Math.abs(previous.viewportWidth - current.viewportWidth) > 2 ||
+    Math.abs(previous.viewportHeight - current.viewportHeight) > 2 ||
     !near(previous.pixelRatio, current.pixelRatio) ||
     !near(previous.pane.width, current.pane.width) ||
     !near(previous.pane.height, current.pane.height)
