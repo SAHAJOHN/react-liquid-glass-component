@@ -1,4 +1,5 @@
 import type { SceneFrame, SceneItem, SceneRect } from './types'
+import { MAX_SCENE_CLIPS, packSceneClips, sceneClips } from './clip-stack'
 import { studioBlurFragmentSource, studioFragmentSource, studioVertexSource } from './studio-shader'
 
 type StudioItem = Extract<SceneItem, { kind: 'glass' }> & {
@@ -116,8 +117,8 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
       shadow: surface.uniform('u_shadow'),
       info: surface.uniform('u_surfaceInfo'),
       flags: surface.uniform('u_flags'),
-      clip: surface.uniform('u_clip'),
-      clipShape: surface.uniform('u_clipShape'),
+      clips: surface.uniform('u_clips[0]'),
+      clipShapes: surface.uniform('u_clipShapes[0]'),
     }
     const blurUniform = {
       viewport: blur.uniform('u_viewport'),
@@ -294,6 +295,10 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
         targetHeight: number
       ) {
         if (disposed || gl.isContextLost()) return false
+        const clips = sceneClips(item)
+        if (clips.length > MAX_SCENE_CLIPS) return false
+        const packedClips = packSceneClips(clips, frame)
+        if (!packedClips) return false
         resize(targetWidth, targetHeight)
         const settings = item.studio
         const ratio = Math.min(width / frame.width, height / frame.height)
@@ -369,19 +374,12 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
           Math.max(1, Math.min(2, item.magnification ?? 1)),
           ratio
         )
-        gl.uniform3f(surfaceUniform.flags, settings.blurEdge ? 1 : 0, 0, item.clip ? 1 : 0)
+        gl.uniform3f(surfaceUniform.flags, settings.blurEdge ? 1 : 0, 0, clips.length)
         gl.uniform1i(surfaceUniform.source, 0)
         gl.uniform1i(surfaceUniform.blurred, 1)
-        if (item.clip) {
-          const clip = item.clip
-          gl.uniform4f(
-            surfaceUniform.clip,
-            clip.rect.x - (clip.space === 'document' ? frame.scrollX : 0),
-            clip.rect.y - (clip.space === 'document' ? frame.scrollY : 0),
-            clip.rect.width,
-            clip.rect.height
-          )
-          gl.uniform2f(surfaceUniform.clipShape, clip.radius, clip.roundness ?? 2)
+        if (clips.length) {
+          gl.uniform4fv(surfaceUniform.clips, packedClips.rects)
+          gl.uniform2fv(surfaceUniform.clipShapes, packedClips.shapes)
         }
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, snapshot)
@@ -391,7 +389,7 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
         gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFramebuffer)
         if (settings.shadowFactor > 0) {
           scissor(outer)
-          gl.uniform3f(surfaceUniform.flags, settings.blurEdge ? 1 : 0, 1, item.clip ? 1 : 0)
+          gl.uniform3f(surfaceUniform.flags, settings.blurEdge ? 1 : 0, 1, clips.length)
           gl.enable(gl.BLEND)
           gl.blendEquationSeparate(gl.FUNC_REVERSE_SUBTRACT, gl.FUNC_ADD)
           gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE)
@@ -475,7 +473,7 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
         gl.activeTexture(gl.TEXTURE1)
         gl.bindTexture(gl.TEXTURE_2D, vertical.texture)
         gl.activeTexture(gl.TEXTURE0)
-        gl.uniform3f(surfaceUniform.flags, settings.blurEdge ? 1 : 0, 0, item.clip ? 1 : 0)
+        gl.uniform3f(surfaceUniform.flags, settings.blurEdge ? 1 : 0, 0, clips.length)
         gl.enable(gl.BLEND)
         gl.blendEquation(gl.FUNC_ADD)
         gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)

@@ -6,6 +6,7 @@ import { useScene } from './scene/use-scene'
 
 export type LiquidGlassSceneStatus =
   | { status: 'ready' }
+  | { status: 'pending'; reasons: readonly string[] }
   | { status: 'fallback'; reasons: readonly string[] }
 
 export interface LiquidGlassSceneProps extends HTMLAttributes<HTMLDivElement> {
@@ -13,6 +14,8 @@ export interface LiquidGlassSceneProps extends HTMLAttributes<HTMLDivElement> {
   background?: string
   /** Maximum backing resolution; also limited by the mobile pixel budget. Default 2. */
   maxPixelRatio?: number
+  /** Present only one enclosing pane; native page content stays visible elsewhere. */
+  presentation?: 'scene' | 'glass-only'
   /** Reports unsupported content or GPU failure without hiding the original HTML. */
   onStatusChange?: (state: LiquidGlassSceneStatus) => void
 }
@@ -39,14 +42,18 @@ const SceneStyled = styled.div.withConfig({ componentId: 'liquid-glass-scene-roo
     opacity: 0;
   }
 
-  &[data-liquid-glass-scene-ready='true'] > .liquid-glass-scene__canvas {
+  &[data-liquid-glass-scene-ready='true'] > .liquid-glass-scene__canvas,
+  &[data-liquid-glass-scene-pending='true'] > .liquid-glass-scene__canvas {
     opacity: 1;
   }
 `
 
 /** Owns the canvas and automatically composes supported HTML behind LiquidGlass. */
 export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps>(
-  ({ children, background, maxPixelRatio = 2, onStatusChange, ...props }, forwardedRef) => {
+  (
+    { children, background, maxPixelRatio = 2, presentation = 'scene', onStatusChange, ...props },
+    forwardedRef
+  ) => {
     const root = useRef<HTMLDivElement | null>(null)
     const content = useRef<HTMLDivElement>(null)
     const canvas = useRef<HTMLCanvasElement>(null)
@@ -86,6 +93,7 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
       invalidate,
       background,
       maxPixelRatio,
+      presentation,
       onStatusChange,
     })
 

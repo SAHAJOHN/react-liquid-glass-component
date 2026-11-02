@@ -1,6 +1,7 @@
 import type { GlassScene, SceneFrame, SceneItem, SceneRect, SceneRenderer } from './types'
 import { createStudioPass } from './studio-pass'
 import { studioSdfSource } from './studio-shader'
+import { MAX_SCENE_CLIPS, packSceneClips, sceneClips } from './clip-stack'
 
 const vertexSource = `
 attribute vec2 a_position;
@@ -38,10 +39,9 @@ uniform float u_opacity;
 uniform float u_saturation;
 uniform float u_magnification;
 uniform float u_thickness;
-uniform bool u_hasClip;
-uniform vec4 u_clip;
-uniform float u_clipRadius;
-uniform float u_clipRoundness;
+uniform int u_clipCount;
+uniform vec4 u_clips[${MAX_SCENE_CLIPS}];
+uniform vec2 u_clipShapes[${MAX_SCENE_CLIPS}];
 uniform vec4 u_media;
 varying vec2 v_local;
 
@@ -53,8 +53,8 @@ float mapChannel(vec3 value, int channel) {
   return value.b;
 }
 
-float roundedCoverage(vec2 point, vec2 size, float requestedRadius) {
-  float distance = studioSdf(point, size, requestedRadius, u_clipRoundness);
+float roundedCoverage(vec2 point, vec2 size, float requestedRadius, float roundness) {
+  float distance = studioSdf(point, size, requestedRadius, roundness);
   float aa = 0.75 / u_pixelRatio;
   return 1.0 - smoothstep(-aa, aa, distance);
 }
@@ -82,9 +82,11 @@ vec3 sampleGlass(vec2 uv, vec2 center) {
 
 void main() {
   float clipCoverage = u_opacity;
-  if (u_hasClip) {
-    vec2 point = u_rect.xy + v_local * u_rect.zw - u_clip.xy;
-    clipCoverage *= roundedCoverage(point, u_clip.zw, u_clipRadius);
+  for (int i = 0; i < ${MAX_SCENE_CLIPS}; i++) {
+    if (i < u_clipCount) {
+      vec2 point = u_rect.xy + v_local * u_rect.zw - u_clips[i].xy;
+      clipCoverage *= roundedCoverage(point, u_clips[i].zw, u_clipShapes[i].x, u_clipShapes[i].y);
+    }
   }
   if (clipCoverage <= 0.0) discard;
   if (u_mode == 0) {
@@ -313,10 +315,9 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
       saturation: uniform('u_saturation'),
       magnification: uniform('u_magnification'),
       thickness: uniform('u_thickness'),
-      hasClip: uniform('u_hasClip'),
-      clip: uniform('u_clip'),
-      clipRadius: uniform('u_clipRadius'),
-      clipRoundness: uniform('u_clipRoundness'),
+      clipCount: uniform('u_clipCount'),
+      clips: uniform('u_clips[0]'),
+      clipShapes: uniform('u_clipShapes[0]'),
       media: uniform('u_media'),
     }
     const maxTextureSize: unknown = context.getParameter(context.MAX_TEXTURE_SIZE)
@@ -524,12 +525,16 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
 
     const setClip = (item: SceneItem, frame: SceneFrame): boolean => {
       context.uniform1f(uniforms.opacity, Math.max(0, Math.min(1, item.opacity)))
-      context.uniform1i(uniforms.hasClip, item.clip ? 1 : 0)
-      if (!item.clip) {
+      const clips = sceneClips(item)
+      if (clips.length > MAX_SCENE_CLIPS) throw new Error('Scene clip stack is too deep')
+      context.uniform1i(uniforms.clipCount, clips.length)
+      if (!clips.length) {
         context.disable(context.SCISSOR_TEST)
         return true
       }
-      const clip = viewportRect(item.clip.rect, item.clip.space, frame)
+      const packed = packSceneClips(clips, frame)
+      if (!packed) throw new Error('Scene clip stack has invalid geometry')
+      const clip = packed.bounds
       const scaleX = targetWidth / frame.width
       const scaleY = targetHeight / frame.height
       const left = Math.max(0, Math.floor(clip.x * scaleX))
@@ -539,9 +544,8 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
       if (right <= left || bottom <= top) return false
       context.enable(context.SCISSOR_TEST)
       context.scissor(left, targetHeight - bottom, right - left, bottom - top)
-      context.uniform4f(uniforms.clip, clip.x, clip.y, clip.width, clip.height)
-      context.uniform1f(uniforms.clipRadius, item.clip.radius)
-      context.uniform1f(uniforms.clipRoundness, item.clip.roundness ?? 2)
+      context.uniform4fv(uniforms.clips, packed.rects)
+      context.uniform2fv(uniforms.clipShapes, packed.shapes)
       return true
     }
 
@@ -791,7 +795,7 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
           context.bindFramebuffer(context.FRAMEBUFFER, null)
           context.disable(context.BLEND)
           context.disable(context.SCISSOR_TEST)
-          context.uniform1i(uniforms.hasClip, 0)
+          context.uniform1i(uniforms.clipCount, 0)
           context.uniform1f(uniforms.opacity, 1)
           drawSprite(sceneTexture, viewport)
           return !context.isContextLost()

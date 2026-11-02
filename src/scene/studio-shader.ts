@@ -1,3 +1,5 @@
+import { MAX_SCENE_CLIPS } from './clip-stack'
+
 /**
  * Adapted from liquid-glass-studio f7b28c3 (MIT, Charles Yin 2024).
  * Color conversion helpers: GLSL-Color-Functions (MIT, Adam Lastowka 2022).
@@ -163,8 +165,8 @@ uniform vec4 u_tint;
 uniform vec4 u_shadow;
 uniform vec4 u_surfaceInfo;
 uniform vec3 u_flags;
-uniform vec4 u_clip;
-uniform vec2 u_clipShape;
+uniform vec4 u_clips[${MAX_SCENE_CLIPS}];
+uniform vec2 u_clipShapes[${MAX_SCENE_CLIPS}];
 varying vec2 v_screen;
 #define u_referenceDpr u_surfaceInfo.x
 #define u_opacity u_surfaceInfo.y
@@ -172,7 +174,6 @@ varying vec2 v_screen;
 #define u_pixelRatio u_surfaceInfo.w
 #define u_blurEdge (u_flags.x > 0.5)
 #define u_shadowPass (u_flags.y > 0.5)
-#define u_hasClip (u_flags.z > 0.5)
 const float PI = 3.14159265359;
 ${studioSdfSource}
 ${colorSource}
@@ -214,10 +215,12 @@ float edgeHighlight(float distance, float range, float hardness) {
 }
 void main() {
   float clipCoverage = u_opacity;
-  if (u_hasClip) {
-    float clipDistance = studioSdf(v_screen - u_clip.xy, u_clip.zw, u_clipShape.x, u_clipShape.y);
-    float aa = 0.75 / u_pixelRatio;
-    clipCoverage *= 1.0 - smoothstep(-aa, aa, clipDistance);
+  for (int i = 0; i < ${MAX_SCENE_CLIPS}; i++) {
+    if (float(i) < u_flags.z) {
+      float clipDistance = studioSdf(v_screen - u_clips[i].xy, u_clips[i].zw, u_clipShapes[i].x, u_clipShapes[i].y);
+      float aa = 0.75 / u_pixelRatio;
+      clipCoverage *= 1.0 - smoothstep(-aa, aa, clipDistance);
+    }
   }
   if (clipCoverage <= 0.0) discard;
   if (u_shadowPass) {

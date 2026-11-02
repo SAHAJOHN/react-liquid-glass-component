@@ -8,6 +8,12 @@ export interface SceneRect {
   height: number
 }
 export type SceneColor = readonly [number, number, number, number]
+export interface SceneClip {
+  rect: SceneRect
+  space: 'document' | 'viewport'
+  radius: number
+  roundness?: number
+}
 
 export interface GlassOptions {
   radius: number
@@ -28,7 +34,9 @@ interface SceneBase {
   rect: SceneRect
   space: 'document' | 'viewport'
   opacity: number
-  clip?: { rect: SceneRect; space: 'document' | 'viewport'; radius: number; roundness?: number }
+  clip?: SceneClip
+  /** Full ancestor clip stack; when present this replaces the legacy single clip. */
+  clips?: readonly SceneClip[]
 }
 
 export type SceneItem =
@@ -76,12 +84,18 @@ export interface SceneTarget {
   rect: SceneRect
   space: 'document' | 'viewport'
 }
+export interface SamplingWatch {
+  element: HTMLImageElement | SVGSVGElement
+  relation: 'inside' | 'outside' | 'invalid'
+}
 export interface CompiledScene {
   scene: GlassScene
   targets: SceneTarget[]
   issues: string[]
   /** Sticky positions need fresh geometry during window scroll. Nested scroll invalidates separately. */
   liveGeometry: boolean
+  /** Unresolved bounded assets to remeasure without recompiling the full DOM. */
+  samplingWatches?: readonly SamplingWatch[]
   media: (HTMLVideoElement | HTMLCanvasElement)[]
 }
 export interface SceneCompiler {
@@ -89,7 +103,9 @@ export interface SceneCompiler {
     root: HTMLElement,
     glasses: ReadonlyMap<HTMLElement, GlassOptions>,
     frame: SceneFrame,
-    background: string
+    background: string,
+    /** Conservative glass sampling area in viewport CSS pixels, if one is known. */
+    samplingRegion?: SceneRect
   ): CompiledScene
   dispose(): void
 }

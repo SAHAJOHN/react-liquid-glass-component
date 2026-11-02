@@ -27,12 +27,11 @@ export const LiquidGlassStyled = styled.div.withConfig({ componentId: 'liquid-gl
     isolation: isolate;
   }
 
-  [data-liquid-glass-scene-ready='true'] &.liquid-glass--managed {
-    /* The opaque scene already paints this effect. Keep the semantic HTML but
-       avoid a second set of native backdrop-filter passes underneath it. */
+  [data-liquid-glass-scene-ready='true'] &.liquid-glass--managed,
+  [data-liquid-glass-scene-pending='true'] &.liquid-glass--managed {
+    /* The scene already paints the glass. Avoid a second native backdrop pass. */
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    box-shadow: none;
   }
 
   .liquid-glass__content {

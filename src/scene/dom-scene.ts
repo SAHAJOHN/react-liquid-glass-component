@@ -1,4 +1,9 @@
 import { createDisplacementMapSvg } from '../displacement-map'
+import { roundedClipContainsRect } from './clip-geometry'
+import { MAX_SCENE_CLIPS } from './clip-stack'
+import { paintLucide } from './paint-lucide'
+import { paintEllipsis } from './paint-ellipsis'
+import { samplingRelation } from './sampling-boundary'
 import type {
   CompiledScene,
   SceneCompiler,
@@ -6,15 +11,21 @@ import type {
   SceneItem,
   SceneRect,
   SceneTarget,
+  SamplingWatch,
 } from './types'
 import { backgroundUrl, createColorReader, length, paintBox, splitCss } from './paint-box'
+import { paintBoxShadows } from './paint-shadow'
+import type { BoxShadowPaint, BoxShadowSprite } from './paint-shadow'
+import { measurePseudoBox, paintPseudoBox, type PseudoName } from './paint-pseudo'
 import {
   createAssetCache,
+  canReuseLoadedImage,
   canStretchSvg,
   paintControlText,
   paintImage,
   paintText,
   serializeSvg,
+  stableSvgRasterDimension,
 } from './paint-content'
 
 type Space = 'document' | 'viewport'
@@ -25,7 +36,7 @@ interface Geometry {
   scaleY: number
   opacity: number
   transformed: boolean
-  clip?: Clip
+  clips?: readonly Clip[]
 }
 interface CachedPaint {
   key: string
@@ -62,51 +73,58 @@ function rasterRatio(width: number, height: number, ratio: number) {
     Math.sqrt(2_000_000 / Math.max(1, width * height))
   )
 }
+
+function sceneSamplingRelation(
+  rect: SceneRect,
+  space: Space,
+  frame: SceneFrame,
+  region: SceneRect | undefined
+): ReturnType<typeof samplingRelation> {
+  return samplingRelation(
+    {
+      x: rect.x - (space === 'document' ? frame.scrollX : 0),
+      y: rect.y - (space === 'document' ? frame.scrollY : 0),
+      width: rect.width,
+      height: rect.height,
+    },
+    region
+  )
+}
 function base(rect: SceneRect, geometry: Geometry) {
   return {
     rect,
     space: geometry.space,
     opacity: geometry.opacity,
-    ...(geometry.clip ? { clip: geometry.clip } : {}),
+    ...(geometry.clips?.length ? { clips: geometry.clips } : {}),
   }
 }
-function clipIntersection(
-  previous: Clip | undefined,
+function appendClip(
+  previous: readonly Clip[] | undefined,
   next: Clip,
-  frame: SceneFrame,
   issues: Set<string>
-): Clip {
-  if (!previous) return next
-  const screen = (clip: Clip) => ({
-    ...clip.rect,
-    x: clip.rect.x - (clip.space === 'document' ? frame.scrollX : 0),
-    y: clip.rect.y - (clip.space === 'document' ? frame.scrollY : 0),
-  })
-  const a = screen(previous),
-    b = screen(next)
-  const left = Math.max(a.x, b.x),
-    top = Math.max(a.y, b.y)
-  const right = Math.min(a.x + a.width, b.x + b.width),
-    bottom = Math.min(a.y + a.height, b.y + b.height)
-  const contains = (outer: SceneRect, inner: SceneRect) =>
-    inner.x >= outer.x &&
-    inner.y >= outer.y &&
-    inner.x + inner.width <= outer.x + outer.width &&
-    inner.y + inner.height <= outer.y + outer.height
-  if (contains(a, b) && previous.radius === 0) return next
-  if (contains(b, a) && next.radius === 0) return previous
-  if (previous.radius || next.radius)
-    issues.add('Intersecting rounded clipping containers require native HTML rendering')
-  return {
-    rect: {
-      x: left + frame.scrollX,
-      y: top + frame.scrollY,
-      width: Math.max(0, right - left),
-      height: Math.max(0, bottom - top),
-    },
-    space: 'document',
-    radius: 0,
+): readonly Clip[] {
+  const result: Clip[] = []
+  for (const clip of previous ?? []) {
+    if (clip.space !== next.space) {
+      result.push(clip)
+      continue
+    }
+    const a = clip.rect
+    const b = next.rect
+    const same =
+      a.x === b.x &&
+      a.y === b.y &&
+      a.width === b.width &&
+      a.height === b.height &&
+      clip.radius === next.radius &&
+      (clip.roundness ?? 2) === (next.roundness ?? 2)
+    if (same || roundedClipContainsRect(b, next.radius, next.roundness ?? 2, a)) return previous!
+    if (!roundedClipContainsRect(a, clip.radius, clip.roundness ?? 2, b)) result.push(clip)
   }
+  result.push(next)
+  if (result.length > MAX_SCENE_CLIPS)
+    issues.add(`More than ${MAX_SCENE_CLIPS} nested clips require native HTML rendering`)
+  return result
 }
 
 /** Reads ordinary DOM; callers never annotate text, media, or paint primitives. */
@@ -114,12 +132,23 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
   const readColor = createColorReader()
   const assets = createAssetCache(invalidate)
   const boxCache = new WeakMap<Element, CachedPaint>()
-  const textCache = new WeakMap<Text, CachedPaint>()
-  const imageCache = new WeakMap<Element, CachedPaint>()
+  const shadowCache = new WeakMap<Element, { key: string; paint: BoxShadowPaint }>()
+  const pseudoCache = new WeakMap<HTMLElement, Partial<Record<PseudoName, CachedPaint>>>()
+  let textCache = new WeakMap<Text, CachedPaint>()
+  let imageCache = new WeakMap<Element, CachedPaint>()
+  const rejectedDomImages = new WeakMap<HTMLImageElement, string>()
   const svgSizes = new WeakMap<SVGSVGElement, SvgRasterSize>()
   const mapBitmaps = new Map<string, HTMLCanvasElement>()
   const channelIndexes = { R: 0, G: 1, B: 2 } as const
   let disposed = false
+  const fonts = document.fonts
+  const onFontsChanged = () => {
+    textCache = new WeakMap()
+    imageCache = new WeakMap()
+    invalidate()
+  }
+  fonts?.addEventListener('loadingdone', onFontsChanged)
+  fonts?.addEventListener('loadingerror', onFontsChanged)
 
   const paintCached = <T extends Element | Text>(
     cache: WeakMap<T, CachedPaint>,
@@ -142,7 +171,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
   }
 
   return {
-    compile(root, glasses, frame, background): CompiledScene {
+    compile(root, glasses, frame, background, samplingRegion): CompiledScene {
       if (disposed) throw new Error('Scene compiler is disposed')
       const items: SceneItem[] = []
       const targets: SceneTarget[] = []
@@ -151,6 +180,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
       const usedMapKeys = new Set<string>()
       const media: (HTMLVideoElement | HTMLCanvasElement)[] = []
       let liveGeometry = false
+      const samplingWatches: SamplingWatch[] = []
 
       const text = (node: Text, parent: HTMLElement, geometry: Geometry) => {
         if (!node.data.trim()) return
@@ -207,6 +237,9 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         if (!(element instanceof HTMLElement) && !(element instanceof SVGSVGElement)) return
         const style = getComputedStyle(element)
         if (style.display === 'none' || element.hasAttribute('hidden')) return
+        // A zero-area clip suppresses the element and all of its descendants.
+        // This common screen-reader-only pattern still remains in the native DOM.
+        if (/^inset\(50%\)$/.test(style.clipPath)) return
         const bounds = element.getBoundingClientRect()
         const geometry: Geometry = {
           ...inherited,
@@ -240,6 +273,52 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         const rect = toRect(bounds, geometry.space, frame)
         const size = logicalSize(bounds, geometry)
         const ratio = rasterRatio(size.width, size.height, frame.pixelRatio)
+        let shadows: BoxShadowPaint = { status: 'none' }
+        if (visible && style.boxShadow && style.boxShadow !== 'none') {
+          const key = [
+            size.width,
+            size.height,
+            ratio,
+            style.boxShadow,
+            style.color,
+            style.borderTopWidth,
+            style.borderRightWidth,
+            style.borderBottomWidth,
+            style.borderLeftWidth,
+            style.borderTopLeftRadius,
+            style.borderTopRightRadius,
+            style.borderBottomRightRadius,
+            style.borderBottomLeftRadius,
+          ].join('|')
+          const cached = shadowCache.get(element)
+          shadows =
+            cached?.key === key
+              ? cached.paint
+              : paintBoxShadows(style, size.width, size.height, ratio)
+          if (cached?.key !== key) shadowCache.set(element, { key, paint: shadows })
+          if (shadows.status === 'unsupported') issues.add(`CSS box shadow: ${shadows.reason}`)
+          // CSS opacity applies to the combined element, not each paint operation.
+          // Separate shadow and box sprites cannot reproduce group opacity exactly.
+          if (shadows.status === 'ready' && geometry.opacity < 1)
+            issues.add('CSS box shadows with opacity require native HTML rendering')
+        }
+        const appendShadow = (sprite: BoxShadowSprite | undefined) => {
+          if (!sprite) return
+          items.push({
+            kind: 'sprite',
+            ...base(
+              {
+                x: rect.x + sprite.offsetX * geometry.scaleX,
+                y: rect.y + sprite.offsetY * geometry.scaleY,
+                width: sprite.width * geometry.scaleX,
+                height: sprite.height * geometry.scaleY,
+              },
+              geometry
+            ),
+            bitmap: sprite.bitmap,
+          })
+        }
+        if (shadows.status === 'ready') appendShadow(shadows.outer)
         let radius =
           length(
             style.borderTopLeftRadius.split(/\s+/)[0] ?? '0',
@@ -371,6 +450,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
             items.push({ kind: 'sprite', ...base(rect, geometry), bitmap })
           }
         }
+        if (shadows.status === 'ready') appendShadow(shadows.inset)
         if (
           visible &&
           element instanceof HTMLElement &&
@@ -406,8 +486,8 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
           }
           childrenGeometry = {
             ...geometry,
-            clip: clipIntersection(
-              geometry.clip,
+            clips: appendClip(
+              geometry.clips,
               {
                 rect: clipRect,
                 space: geometry.space,
@@ -415,7 +495,6 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
                   clipsX && clipsY ? Math.max(0, radius - Math.max(borderLeft, borderTop)) : 0,
                 ...(glass?.studio ? { roundness: glass.studio.shapeRoundness } : {}),
               },
-              frame,
               issues
             ),
           }
@@ -423,32 +502,89 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         if (visible && element instanceof HTMLImageElement) {
           const source = element.currentSrc || element.src
           if (!source) return
-          const asset = assets.get(source)
-          if (asset.status !== 'ready') {
+          const reportUnavailable = (status: 'loading' | 'error') => {
+            const relation = sceneSamplingRelation(rect, geometry.space, frame, samplingRegion)
+            if (samplingRegion) samplingWatches.push({ element, relation })
+            if (relation === 'outside') {
+              return
+            }
             issues.add(
-              asset.status === 'loading'
+              status === 'loading'
                 ? 'Image is loading'
                 : 'Image could not be read; check its URL and CORS permission'
             )
+          }
+          // A loaded same-origin DOM image is already a valid CanvasImageSource.
+          // Reusing it avoids a second asynchronous load when a lazy image first
+          // intersects the viewport. paintImage still performs the taint check,
+          // so a no-CORS cross-origin image continues to fail closed.
+          const reuseDomImage =
+            rejectedDomImages.get(element) !== source && canReuseLoadedImage(element, source)
+          let asset = reuseDomImage
+            ? { image: element, status: 'ready' as const }
+            : assets.get(source)
+          if (asset.status !== 'ready') {
+            reportUnavailable(asset.status)
             return
           }
-          const key = [
-            source,
-            size.width.toFixed(3),
-            size.height.toFixed(3),
-            ratio,
-            style.objectFit,
-            style.objectPosition,
-            style.borderRadius,
-          ].join('|')
-          const bitmap = paintCached(
-            imageCache,
-            element,
-            key,
-            (paintIssues) =>
-              paintImage(asset.image, size.width, size.height, ratio, style, paintIssues),
-            issues
-          )
+          const key = (variant: 'dom' | 'anonymous') =>
+            [
+              source,
+              variant,
+              size.width.toFixed(3),
+              size.height.toFixed(3),
+              ratio,
+              style.objectFit,
+              style.objectPosition,
+              style.borderRadius,
+            ].join('|')
+          let variant: 'dom' | 'anonymous' = reuseDomImage ? 'dom' : 'anonymous'
+          let bitmap: HTMLCanvasElement
+          let previous = imageCache.get(element)
+          if (previous?.key === key(variant)) {
+            previous.issues.forEach((issue) => issues.add(issue))
+            bitmap = previous.bitmap
+          } else {
+            let paintIssues = new Set<string>()
+            bitmap = paintImage(asset.image, size.width, size.height, ratio, style, paintIssues)
+            if (reuseDomImage && paintIssues.has('Cross-origin image requires CORS permission')) {
+              // A same-origin URL can redirect to a no-CORS CDN. The DOM image
+              // then taints canvas even though its requested URL looked reusable.
+              // Retry through a fresh anonymous request, and never cache the
+              // tainted bitmap or its issue under the anonymous variant.
+              rejectedDomImages.set(element, source)
+              asset = assets.get(source)
+              if (asset.status !== 'ready') {
+                reportUnavailable(asset.status)
+                return
+              }
+              variant = 'anonymous'
+              previous = imageCache.get(element)
+              if (previous?.key === key(variant)) {
+                previous.issues.forEach((issue) => issues.add(issue))
+                bitmap = previous.bitmap
+              } else {
+                paintIssues = new Set<string>()
+                bitmap = paintImage(asset.image, size.width, size.height, ratio, style, paintIssues)
+                const result = {
+                  key: key(variant),
+                  bitmap,
+                  issues: Array.from(paintIssues),
+                }
+                imageCache.set(element, result)
+                result.issues.forEach((issue) => issues.add(issue))
+              }
+            } else {
+              const result = { key: key(variant), bitmap, issues: Array.from(paintIssues) }
+              imageCache.set(element, result)
+              result.issues.forEach((issue) => issues.add(issue))
+            }
+          }
+          // Keep a separate decoded image warm across route unmounts. The DOM
+          // element itself can be reused by React with a different src; only
+          // prime after the rendered bitmap passed its origin-clean check.
+          if (variant === 'dom' && imageCache.get(element)?.issues.length === 0)
+            assets.prime(source, element.naturalWidth, element.naturalHeight)
           items.push({ kind: 'sprite', ...base(rect, geometry), bitmap })
           return
         }
@@ -479,6 +615,14 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
               })
             } else svgSize = cachedSize
           } else svgSizes.delete(element)
+          // Motion can leave sub-millipixel noise in getBoundingClientRect even
+          // after the inherited transform is divided out. Embedding that noise
+          // in the SVG data URL creates a different Image on every frame.
+          svgSize = {
+            ...svgSize,
+            width: stableSvgRasterDimension(svgSize.width),
+            height: stableSvgRasterDimension(svgSize.height),
+          }
           if (
             svgSize.width > 4096 ||
             svgSize.height > 4096 ||
@@ -488,8 +632,25 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
             return
           }
           const source = serializeSvg(element, svgSize.width, svgSize.height, issues)
+          const icon = paintLucide(element, svgSize.width, svgSize.height, svgSize.ratio)
+          if (icon.status === 'ready') {
+            items.push({ kind: 'sprite', ...base(rect, geometry), bitmap: icon.bitmap })
+            return
+          }
           const asset = assets.get(source)
           if (asset.status !== 'ready') {
+            const clipped =
+              ['hidden', 'clip'].includes(style.overflowX) &&
+              ['hidden', 'clip'].includes(style.overflowY)
+            const boundedEffects =
+              (!style.filter || style.filter === 'none') &&
+              !hasBackdropFilter(style) &&
+              (!style.outlineStyle || style.outlineStyle === 'none') &&
+              shadows.status !== 'unsupported'
+            const relation = sceneSamplingRelation(rect, geometry.space, frame, samplingRegion)
+            if (samplingRegion && clipped && boundedEffects)
+              samplingWatches.push({ element, relation })
+            if (clipped && boundedEffects && relation === 'outside') return
             issues.add(asset.status === 'loading' ? 'SVG is loading' : 'SVG could not be rendered')
             return
           }
@@ -667,7 +828,109 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
           return
         }
         if (element instanceof HTMLElement) {
-          const childNodes = Array.from(element.childNodes)
+          type ChildPaint =
+            | { kind: 'node'; node: Node; z: number }
+            | {
+                kind: 'pseudo'
+                bitmap: HTMLCanvasElement
+                rect: SceneRect
+                opacity: number
+                z: number
+              }
+          const pseudo = (name: PseudoName): ChildPaint | undefined => {
+            const measured = measurePseudoBox(element, name)
+            if (measured.status === 'none') return undefined
+            if (measured.status === 'unsupported') {
+              issues.add(measured.reason)
+              return undefined
+            }
+            if (measured.zIndex !== 0 && !createsStackingContext(element, style)) {
+              issues.add('Escaping pseudo-element stacking order requires native HTML rendering')
+              return undefined
+            }
+            const pseudoRatio = rasterRatio(
+              measured.rect.width,
+              measured.rect.height,
+              frame.pixelRatio
+            )
+            const pseudoStyle = measured.style
+            const key = [
+              measured.rect.width,
+              measured.rect.height,
+              measured.localSize.width,
+              measured.localSize.height,
+              measured.scale.x,
+              measured.scale.y,
+              pseudoRatio,
+              pseudoStyle.backgroundColor,
+              pseudoStyle.backgroundImage,
+              pseudoStyle.backgroundSize,
+              pseudoStyle.backgroundPosition,
+              pseudoStyle.backgroundRepeat,
+              pseudoStyle.paddingTop,
+              pseudoStyle.paddingRight,
+              pseudoStyle.paddingBottom,
+              pseudoStyle.paddingLeft,
+              pseudoStyle.maskImage,
+              pseudoStyle.maskClip,
+              pseudoStyle.maskOrigin,
+              pseudoStyle.maskComposite,
+              pseudoStyle.maskSize,
+              pseudoStyle.maskRepeat,
+              pseudoStyle.maskPosition,
+              pseudoStyle.maskMode,
+              pseudoStyle.getPropertyValue('-webkit-mask-image'),
+              pseudoStyle.getPropertyValue('-webkit-mask-clip'),
+              pseudoStyle.getPropertyValue('-webkit-mask-origin'),
+              pseudoStyle.getPropertyValue('-webkit-mask-composite'),
+              pseudoStyle.getPropertyValue('-webkit-mask-size'),
+              pseudoStyle.getPropertyValue('-webkit-mask-repeat'),
+              pseudoStyle.getPropertyValue('-webkit-mask-position'),
+              pseudoStyle.borderWidth,
+              pseudoStyle.borderStyle,
+              pseudoStyle.borderColor,
+              pseudoStyle.borderRadius,
+              pseudoStyle.borderTopWidth,
+              pseudoStyle.borderRightWidth,
+              pseudoStyle.borderBottomWidth,
+              pseudoStyle.borderLeftWidth,
+              pseudoStyle.borderTopStyle,
+              pseudoStyle.borderRightStyle,
+              pseudoStyle.borderBottomStyle,
+              pseudoStyle.borderLeftStyle,
+              pseudoStyle.borderTopColor,
+              pseudoStyle.borderRightColor,
+              pseudoStyle.borderBottomColor,
+              pseudoStyle.borderLeftColor,
+              pseudoStyle.borderTopLeftRadius,
+              pseudoStyle.borderTopRightRadius,
+              pseudoStyle.borderBottomRightRadius,
+              pseudoStyle.borderBottomLeftRadius,
+            ].join('|')
+            const entry = pseudoCache.get(element) ?? {}
+            let cached = entry[name]
+            if (cached?.key !== key) {
+              const painted = paintPseudoBox(element, name, pseudoRatio)
+              if (painted.status !== 'ready') {
+                if (painted.status === 'unsupported') issues.add(painted.reason)
+                return undefined
+              }
+              cached = { key, bitmap: painted.bitmap, issues: [] }
+              entry[name] = cached
+              pseudoCache.set(element, entry)
+            }
+            return {
+              kind: 'pseudo',
+              bitmap: cached.bitmap,
+              rect: {
+                ...measured.rect,
+                x: measured.rect.x + (geometry.space === 'document' ? frame.scrollX : 0),
+                y: measured.rect.y + (geometry.space === 'document' ? frame.scrollY : 0),
+              },
+              opacity: measured.opacity,
+              z: measured.zIndex,
+            }
+          }
           const z = (node: Node) => {
             if (!(node instanceof Element)) return 0
             const childStyle = getComputedStyle(node)
@@ -677,10 +940,44 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
               ? 0
               : Number.parseInt(childStyle.zIndex, 10) || 0
           }
-          childNodes.sort((a, b) => z(a) - z(b))
-          for (const child of childNodes) {
-            if (child instanceof Text) text(child, element, childrenGeometry)
-            else if (child instanceof Element) walk(child, childrenGeometry)
+          const children: ChildPaint[] = []
+          const ellipsis =
+            style.textOverflow === 'ellipsis' && element.scrollWidth > element.clientWidth
+              ? paintEllipsis(element, frame.pixelRatio)
+              : { status: 'none' as const }
+          if (ellipsis.status === 'unsupported') issues.add(ellipsis.reason)
+          const before = pseudo('::before')
+          if (before) children.push(before)
+          if (ellipsis.status === 'ready') {
+            children.push({
+              kind: 'pseudo',
+              bitmap: ellipsis.bitmap,
+              rect: {
+                ...ellipsis.rect,
+                x: ellipsis.rect.x + (geometry.space === 'document' ? frame.scrollX : 0),
+                y: ellipsis.rect.y + (geometry.space === 'document' ? frame.scrollY : 0),
+              },
+              opacity: 1,
+              z: 0,
+            })
+          } else {
+            for (const node of element.childNodes) children.push({ kind: 'node', node, z: z(node) })
+          }
+          const after = pseudo('::after')
+          if (after) children.push(after)
+          children.sort((a, b) => a.z - b.z)
+          for (const child of children) {
+            if (child.kind === 'pseudo') {
+              items.push({
+                kind: 'sprite',
+                ...base(child.rect, {
+                  ...childrenGeometry,
+                  opacity: geometry.opacity * child.opacity,
+                }),
+                bitmap: child.bitmap,
+              })
+            } else if (child.node instanceof Text) text(child.node, element, childrenGeometry)
+            else if (child.node instanceof Element) walk(child.node, childrenGeometry)
           }
         }
       }
@@ -715,11 +1012,14 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         targets,
         issues: Array.from(issues),
         liveGeometry,
+        samplingWatches,
         media,
       }
     },
     dispose() {
       disposed = true
+      fonts?.removeEventListener('loadingdone', onFontsChanged)
+      fonts?.removeEventListener('loadingerror', onFontsChanged)
       assets.dispose()
       mapBitmaps.clear()
     },
@@ -758,7 +1058,6 @@ function inspectUnsupported(
     issues.add('Active text editing requires native HTML rendering')
   if (style.filter !== 'none' || hasBackdropFilter(style))
     issues.add('CSS filters outside LiquidGlass require native HTML rendering')
-  if (style.boxShadow !== 'none') issues.add('CSS box shadows require native HTML rendering')
   if (style.textShadow !== 'none') issues.add('CSS text shadows require native HTML rendering')
   if (style.borderImageSource !== 'none')
     issues.add('CSS border images require native HTML rendering')
@@ -772,8 +1071,15 @@ function inspectUnsupported(
   if (style.mixBlendMode !== 'normal') issues.add('CSS blend modes require native HTML rendering')
   if (style.backgroundClip === 'text' || style.backgroundAttachment === 'fixed')
     issues.add('Text-clipped and fixed CSS backgrounds require native HTML rendering')
-  if (style.textOverflow === 'ellipsis' && element.scrollWidth > element.clientWidth)
-    issues.add('Ellipsized text requires native HTML rendering')
+  if (
+    !(element instanceof HTMLElement) ||
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement
+  ) {
+    if (style.textOverflow === 'ellipsis' && element.scrollWidth > element.clientWidth)
+      issues.add('Ellipsized controls require native HTML rendering')
+  }
   if (
     (style.rotate && style.rotate !== 'none') ||
     (style.scale && style.scale !== 'none') ||
@@ -785,13 +1091,6 @@ function inspectUnsupported(
   if (element.shadowRoot) issues.add('Shadow DOM content requires native HTML rendering')
   if (style.writingMode !== 'horizontal-tb')
     issues.add('Vertical text requires native HTML rendering')
-  if (element instanceof HTMLElement) {
-    for (const pseudo of ['::before', '::after']) {
-      const content = getComputedStyle(element, pseudo).content
-      if (content && content !== 'none' && content !== 'normal')
-        issues.add('CSS generated content requires native HTML rendering')
-    }
-  }
 }
 
 function hasBackdropFilter(style: CSSStyleDeclaration): boolean {

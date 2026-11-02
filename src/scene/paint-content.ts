@@ -4,41 +4,179 @@ export interface Asset {
   image: HTMLImageElement
   status: 'loading' | 'ready' | 'error'
 }
+const MAX_RETAINED_ASSETS = 256
+const MAX_PRIMED_ASSETS = 32
+const MAX_PRIMED_PIXELS = 2_000_000
+const MAX_TOTAL_PRIMED_PIXELS = 8_000_000
+
+export function stableSvgRasterDimension(value: number): number {
+  return Number(value.toFixed(3))
+}
+
+export function canReuseLoadedImage(image: HTMLImageElement, source: string): boolean {
+  if (!image.complete || image.naturalWidth <= 0) return false
+  if (source.startsWith('data:') || source.startsWith('blob:')) return true
+  try {
+    return (
+      new URL(source, document.baseURI).origin === location.origin ||
+      image.crossOrigin === 'anonymous'
+    )
+  } catch {
+    return false
+  }
+}
+
 export function createAssetCache(invalidate: () => void) {
-  const assets = new Map<string, Asset>()
+  interface CachedAsset extends Asset {
+    /** Whether the current scene has waited for this image. */
+    demanded: boolean
+    /** Speculatively decoded copies have a separate, smaller budget. */
+    primed: boolean
+    primedPixels: number
+  }
+  const assets = new Map<string, CachedAsset>()
   let disposed = false
+  let primedCount = 0
+  let primedPixels = 0
   const used = new Set<string>()
+  const releasePrime = (asset: CachedAsset) => {
+    if (!asset.primed) return
+    primedCount -= 1
+    primedPixels -= asset.primedPixels
+    asset.primed = false
+    asset.primedPixels = 0
+  }
+  const create = (source: string, demanded: boolean, reservedPixels = 0): CachedAsset => {
+    const image = new Image()
+    const asset: CachedAsset = {
+      image,
+      status: 'loading',
+      demanded,
+      primed: !demanded,
+      primedPixels: demanded ? 0 : reservedPixels,
+    }
+    image.onload = () => {
+      if (disposed || assets.get(source) !== asset) return
+      if (asset.primed) {
+        const actualPixels = image.naturalWidth * image.naturalHeight
+        const exceedsBudget =
+          !actualPixels ||
+          image.naturalWidth > 4096 ||
+          image.naturalHeight > 4096 ||
+          actualPixels > MAX_PRIMED_PIXELS ||
+          primedPixels - asset.primedPixels + actualPixels > MAX_TOTAL_PRIMED_PIXELS
+        if (exceedsBudget) {
+          // A mutable URL can return a different-sized image than the DOM
+          // source used for the reservation. A demanded image is required by
+          // the current scene; a purely speculative one is discarded.
+          releasePrime(asset)
+          if (!asset.demanded) {
+            asset.status = 'error'
+            image.onload = null
+            image.onerror = null
+            image.removeAttribute('src')
+            return
+          }
+        } else {
+          primedPixels += actualPixels - asset.primedPixels
+          asset.primedPixels = actualPixels
+        }
+      }
+      asset.status = 'ready'
+      if (asset.demanded) invalidate()
+    }
+    image.onerror = () => {
+      if (disposed || assets.get(source) !== asset) return
+      asset.status = 'error'
+      releasePrime(asset)
+      if (asset.demanded) invalidate()
+    }
+    if (!source.startsWith('data:') && !source.startsWith('blob:')) image.crossOrigin = 'anonymous'
+    assets.set(source, asset)
+    if (asset.primed) {
+      primedCount += 1
+      primedPixels += asset.primedPixels
+    }
+    image.src = source
+    return asset
+  }
+  const remove = (source: string, asset: CachedAsset) => {
+    asset.image.onload = null
+    asset.image.onerror = null
+    assets.delete(source)
+    releasePrime(asset)
+  }
+  const touch = (source: string, asset: CachedAsset) => {
+    assets.delete(source)
+    assets.set(source, asset)
+  }
   return {
     begin() {
       used.clear()
     },
     end() {
+      // Keep recently used decoded assets across visibility animations. Removing
+      // an inline SVG as soon as an opacity-zero ancestor skips it forces a new
+      // asynchronous Image decode when it reappears, which would make the whole
+      // scene fall back for a frame. Evict unused least-recently-used assets
+      // above the target; assets used by this compilation remain available.
       for (const [source, asset] of assets) {
-        if (used.has(source)) continue
-        asset.image.onload = null
-        asset.image.onerror = null
-        assets.delete(source)
+        if (assets.size <= MAX_RETAINED_ASSETS || used.has(source)) continue
+        remove(source, asset)
       }
     },
     get(source: string): Asset {
       used.add(source)
       const previous = assets.get(source)
-      if (previous) return previous
-      const image = new Image()
-      const asset: Asset = { image, status: 'loading' }
-      image.onload = () => {
-        asset.status = 'ready'
-        if (!disposed) invalidate()
+      if (previous) {
+        // A failed speculative request must not poison a later required load.
+        if (previous.status === 'error' && !previous.demanded) {
+          remove(source, previous)
+        } else {
+          previous.demanded = true
+          // A required image belongs to the active scene, not the speculative
+          // warm budget, even if its background request has not finished yet.
+          releasePrime(previous)
+          touch(source, previous)
+          return previous
+        }
       }
-      image.onerror = () => {
-        asset.status = 'error'
-        if (!disposed) invalidate()
+      return create(source, true)
+    },
+    /** Warm an independent image only after the DOM image passed its origin-clean check. */
+    prime(source: string, width: number, height: number): void {
+      if (
+        !Number.isFinite(width) ||
+        !Number.isFinite(height) ||
+        width <= 0 ||
+        height <= 0 ||
+        width > 4096 ||
+        height > 4096 ||
+        width * height > MAX_PRIMED_PIXELS
+      )
+        return
+      used.add(source)
+      const previous = assets.get(source)
+      if (previous?.status === 'error' && previous.demanded) {
+        remove(source, previous)
+      } else if (previous) {
+        touch(source, previous)
+        return
       }
-      if (!source.startsWith('data:') && !source.startsWith('blob:'))
-        image.crossOrigin = 'anonymous'
-      image.src = source
-      assets.set(source, asset)
-      return asset
+      const pixels = width * height
+      while (primedCount >= MAX_PRIMED_ASSETS || primedPixels + pixels > MAX_TOTAL_PRIMED_PIXELS) {
+        // Preserve assets in the active compile; otherwise replace the oldest
+        // speculative image so the budget follows navigation between pages.
+        let removed = false
+        for (const [oldSource, asset] of assets) {
+          if (!asset.primed || used.has(oldSource)) continue
+          remove(oldSource, asset)
+          removed = true
+          break
+        }
+        if (!removed) return
+      }
+      create(source, false, pixels)
     },
     dispose() {
       disposed = true

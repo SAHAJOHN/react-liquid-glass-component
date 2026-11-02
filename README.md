@@ -73,9 +73,25 @@ export function Page() {
 | ---------------- | -------------------------- | -------------------------------------------------------------------- |
 | `background`     | page or wrapper background | Base color behind the scene.                                         |
 | `maxPixelRatio`  | `2`                        | Backing resolution cap.                                              |
-| `onStatusChange` | —                          | Receives `{ status: 'ready' }` or `{ status: 'fallback', reasons }`. |
+| `presentation`   | `scene`                    | Show the whole scene or use `glass-only` to limit it to a pane.      |
+| `onStatusChange` | —                          | Receives `ready`, `pending`, or `fallback`; the latter include reasons. |
 
-When the scene cannot compile part of the page, the original HTML remains visible and the scene reports the reason. Generated content, masks, arbitrary CSS filters and shadows, rotation, perspective, iframes, Shadow DOM, complex clipping, and active native editing controls are outside the supported scene subset. Portals outside the scene are not captured, and text selection is not mirrored into the canvas. Cross-origin media needs CORS permission.
+For a fixed navigation bar, `presentation="glass-only"` keeps the surrounding page native and shows the canvas inside one enclosing pane:
+
+```tsx
+<LiquidGlassScene presentation="glass-only">
+  <main>Page content</main>
+  <LiquidGlass refThickness={20} shapeRadius={100} shapeRoundness={2} shadowFactor={0}>
+    <nav aria-label="Primary">Navigation</nav>
+  </LiquidGlass>
+</LiquidGlassScene>
+```
+
+All panes must fit inside one enclosing pane, which must fit inside the scene and viewport. Glass-only mode requires `shapeRoundness={2}`, `shadowFactor={0}` and CSS `clip-path` support.
+
+In glass-only mode, the scene can briefly retain its last rendered frame while images or SVGs load. `onStatusChange` reports `pending` during this interval; the previous backdrop can remain visible until the new frame is ready. If loading takes too long or the scene encounters unsupported content, it reports `fallback` and shows the original HTML.
+
+When the scene cannot compile part of the page, the original HTML remains visible and the scene reports the reason. Some generated content, masks, CSS effects, deeply nested clipping, rotation, perspective, iframes, Shadow DOM, and active native editing controls remain unsupported. Portals outside the scene are not captured, and text selection is not mirrored into the canvas. Cross-origin media needs CORS permission.
 
 ## Glass options
 

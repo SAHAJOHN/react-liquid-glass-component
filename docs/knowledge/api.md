@@ -144,7 +144,8 @@ and canvas content from its children. Consumers do not create a canvas or add ma
 | ----------------------------- | ----------------- | ----------------------: | ----------------------------------------------------- |
 | `background`                  | `string`          | wrapper/page background | Opaque base behind the scene.                         |
 | `maxPixelRatio`               | `number`          |                     `2` | Backing resolution cap and mobile pixel-budget input. |
-| `onStatusChange`              | `(state) => void` |                       — | Receives `ready` or `fallback` with reasons.          |
+| `presentation`                | `'scene' \| 'glass-only'` |              `'scene'` | Canvas coverage; `glass-only` retains native content outside the pane. |
+| `onStatusChange`              | `(state) => void` |                       — | Receives `ready`, `pending`, or `fallback` with reasons. |
 | `children`, `ref`, HTML attrs | React/HTML types  |                       — | Normal React content and root attributes.             |
 
 ```tsx
@@ -162,10 +163,18 @@ export function SceneWithStatus() {
 ```
 
 Unsupported CSS/DOM keeps original HTML visible and reports fallback reasons. Current limits
-include arbitrary CSS filters/shadows, generated pseudo-content, masks, rotation/perspective,
-iframes, Shadow DOM, complex nested clipping and active native editing controls. Translate,
+include some CSS effects, generated pseudo-content and masks, rotation/perspective,
+iframes, Shadow DOM, deeply nested clipping and active native editing controls. Translate,
 scale and opacity animations are tracked. Text selection is not mirrored into the canvas;
 cross-origin media needs CORS.
+
+`presentation="glass-only"` shows the canvas only inside one enclosing pane. All registered
+panes must fit inside it, and it must fit inside the scene and viewport. This mode requires
+`shapeRoundness={2}`, `shadowFactor={0}` and CSS `clip-path` support. Content outside the pane
+remains native and interactive. Unsupported content or geometry reports `fallback`.
+During a short pending image or SVG load, this mode can retain the last rendered frame and report
+`pending`; the visible backdrop may briefly belong to the previous frame. A prolonged load or
+unsupported content reports `fallback` and restores native HTML.
 
 ## `ScrollEdge`
 
