@@ -4,14 +4,15 @@ import styled from 'styled-components'
 
 const VideoBackgroundStyled = styled.video`
   position: fixed;
-  top: 0;
-  left: 0;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  z-index: -1;
+  z-index: 0;
+  pointer-events: none;
 `
 
+/** LiquidGlassScene reads this video directly; no intermediate canvas is needed. */
 export default function VideoBackground({ src }: { src: string }) {
   return (
     <VideoBackgroundStyled
@@ -20,6 +21,7 @@ export default function VideoBackground({ src }: { src: string }) {
       muted
       loop
       playsInline
+      preload="auto"
       aria-hidden="true"
     />
   )

@@ -18,6 +18,10 @@ tags:
 
 ## Overview
 
+For the managed `LiquidGlassScene` renderer, automatic DOM compilation and shared-frame
+WebGL composition, see [Managed scene and showcase](canvas-showcase.md). The pipeline below
+describes standalone `LiquidGlass` usage outside that wrapper.
+
 `LiquidGlass` is a React component that renders children inside a visually distorted glass pane. It uses an **SVG filter pipeline** for the liquid/glass effect, with a CSS `backdrop-filter` fallback for browsers that don't support the SVG approach.
 
 ```
@@ -81,7 +85,7 @@ After displacement, `feColorMatrix` isolates each channel:
 
 ## Fallback Chain
 
-The component detects SVG filter support on mount and renders one of two CSS classes:
+On mount, the component checks the SVG backdrop-filter syntax and uses a WebKit-specific feature as an engine heuristic. WebKit takes the CSS path because it can accept SVG filter syntax without rendering the effect. The syntax check is not a pixel-level rendering test.
 
 ### Tier 1: SVG Filters (`liquid-glass--svg`)
 
@@ -89,16 +93,22 @@ The component detects SVG filter support on mount and renders one of two CSS cla
 - CSS custom properties `--glass-frost` and `--glass-saturation` configure the glass
 - Multiple inset/ambient box-shadows for depth
 
-### Tier 2: CSS `backdrop-filter` (`liquid-glass--fallback`)
+### Tier 2: WebGL DOM capture (`liquid-glass--webgl`)
 
-- `backdrop-filter: blur(12px) saturate(1.8) brightness(1.1)`
-- Semi-transparent background with inset box-shadows
-- Dark mode variant via `@media (prefers-color-scheme: dark)`
+- WebKit panes share a periodically refreshed viewport capture and one WebGL context
+- html2canvas reconstructs DOM, including best-effort video frames and animation styles; it is not a compositor screenshot
+- Cross-origin/protected media and unsupported CSS can be absent or inaccurate; frame rate depends on capture cost
+- If capture or WebGL fails, the CSS fallback remains active
 
-### Tier 3: No `backdrop-filter` support (`@supports not`)
+### Tier 3: CSS `backdrop-filter` (`liquid-glass--fallback`)
+
+- Subtle backdrop blur, saturation, and tint
+- This approximates glass and does not displace the backdrop
+
+### Tier 4: No `backdrop-filter` support (`@supports not`)
 
 - Plain semi-transparent background
-- Pseudo-element overlay for subtle glass look
+- Plain translucent fill when backdrop filtering is unavailable
 
 ---
 

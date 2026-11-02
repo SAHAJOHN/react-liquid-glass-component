@@ -1,344 +1,267 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import Link from 'next/link'
 import styled from 'styled-components'
-import { motion, AnimatePresence } from 'framer-motion'
-import { fontWeight, fontSize, colors } from '@/lib/responsive'
+import {
+  GLASS_STUDIO_DEFAULTS,
+  LiquidGlass,
+  type GlassStudioProps,
+} from '@/components/liquid-glass-client'
+import { colors, fontSize, fontWeight } from '@/lib/responsive'
 
-const NavbarStyled = styled.nav<{ $hidden: boolean }>`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  background: ${colors.navBackground};
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid ${colors.navBorder};
-  transform: translateY(${({ $hidden }) => ($hidden ? '-100%' : '0')});
-  transition: transform 0.3s ease;
+const NavbarStyled = styled(LiquidGlass)`
+  &.navbar {
+    top: max(16px, env(safe-area-inset-top));
+    left: max(16px, env(safe-area-inset-left));
+    right: max(16px, env(safe-area-inset-right));
+    max-width: 960px;
+    margin-inline: auto;
+    z-index: 100;
+    min-width: 0;
+  }
+
+  & > .liquid-glass__content {
+    display: block;
+  }
 
   .navbar__inner {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     height: 62px;
     max-width: 1600px;
     margin: 0 auto;
-    padding: 0 24px;
+    padding-left: 24px;
+    padding-right: 24px;
   }
 
   .navbar__logo {
-    font-weight: ${fontWeight.bold};
-    font-size: ${fontSize['2xl']};
-    letter-spacing: -0.02em;
+    flex-shrink: 0;
     color: ${colors.foreground};
+    font-size: ${fontSize['2xl']};
+    font-weight: ${fontWeight.bold};
+    letter-spacing: -0.02em;
+    line-height: 1.5;
     white-space: nowrap;
+    padding: 4px 6px;
+    margin-inline: -6px;
+    border-radius: 6px;
   }
 
   .navbar__links {
     display: flex;
     align-items: center;
     gap: 4px;
+    min-width: 0;
+  }
 
-    @media (max-width: 420px) {
+  .navbar__link,
+  .navbar__toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: ${colors.foreground};
+    font: inherit;
+    font-size: ${fontSize.sm};
+    font-weight: ${fontWeight.medium};
+    line-height: 1.5;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+
+    &:hover {
+      color: ${colors.foreground};
+    }
+
+    &:focus-visible {
+      outline: 2px solid #b4eaff;
+      outline-offset: 3px;
+    }
+  }
+
+  .navbar__link[aria-current='page'] {
+    color: ${colors.foreground};
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  .navbar__toggle {
+    display: none;
+    min-width: 60px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    color: ${colors.foreground};
+    font-size: ${fontSize.base};
+
+  }
+
+  .navbar__mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 16px 16px;
+  }
+
+  .navbar__mobile .navbar__link {
+    justify-content: flex-start;
+    width: 100%;
+    font-size: ${fontSize.lg};
+  }
+
+  @media (min-width: 421px) and (max-width: 600px) {
+    .navbar__inner {
+      gap: 8px;
+      padding-left: 12px;
+      padding-right: 12px;
+    }
+
+    .navbar__link {
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+  }
+
+  @media (min-width: 421px) {
+    .navbar__mobile {
       display: none;
     }
   }
 
-  .navbar__link {
-    background: none;
-    border: none;
-    font: inherit;
-    font-size: ${fontSize.sm};
-    font-weight: ${fontWeight.medium};
-    color: ${colors.foregroundDim};
-    padding: 6px 12px;
-    border-radius: 8px;
-    cursor: pointer;
-    text-decoration: none;
-    transition: color 0.2s, background 0.2s;
-    letter-spacing: 0.02em;
-
-    &:hover {
-      color: ${colors.foreground};
-      background: rgba(255, 255, 255, 0.08);
+  @media (max-width: 420px) {
+    .navbar__links {
+      display: none;
     }
 
-    &--active {
-      color: ${colors.foreground};
-      background: rgba(255, 255, 255, 0.1);
-    }
-  }
-
-  .navbar__link--external {
-    opacity: 0.45;
-
-    &:hover {
-      opacity: 0.85;
-    }
-  }
-
-  /* Hamburger toggle */
-  .navbar__toggle {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    background: none;
-    border: none;
-    cursor: pointer;
-    border-radius: 8px;
-    transition: background 0.2s;
-    -webkit-tap-highlight-color: transparent;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    @media (max-width: 420px) {
-      display: flex;
-    }
-  }
-
-  /* Animated hamburger icon */
-  .navbar__hamburger {
-    position: relative;
-    width: 22px;
-    height: 22px;
-  }
-
-  .navbar__hamburger-line {
-    position: absolute;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background: ${colors.foreground};
-    border-radius: 2px;
-    transition: transform 0.25s ease, opacity 0.25s ease;
-
-    &:nth-child(1) {
-      top: 2px;
-    }
-
-    &:nth-child(2) {
-      top: 10px;
-    }
-
-    &:nth-child(3) {
-      top: 18px;
-    }
-  }
-
-  .navbar__hamburger--open {
-    .navbar__hamburger-line:nth-child(1) {
-      transform: translateY(8px) rotate(45deg);
-    }
-
-    .navbar__hamburger-line:nth-child(2) {
-      opacity: 0;
-    }
-
-    .navbar__hamburger-line:nth-child(3) {
-      transform: translateY(-8px) rotate(-45deg);
-    }
-  }
-
-  /* Mobile dropdown menu */
-  .navbar__mobile {
-    border-radius: 0 0 24px 24px;
-    position: absolute;
-    top: 62px;
-    left: 0;
-    right: 0;
-    background: ${colors.navBackground};
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid ${colors.navBorder};
-    display: flex;
-    flex-direction: column;
-    padding: 8px 16px 12px;
-    gap: 4px;
-    z-index: 99;
-    overflow: hidden;
-  }
-
-  .navbar__mobile-link {
-    display: block;
-    background: none;
-    border: none;
-    font: inherit;
-    font-size: ${fontSize.sm};
-    font-weight: ${fontWeight.medium};
-    color: ${colors.foregroundDim};
-    padding: 12px 12px;
-    border-radius: 8px;
-    cursor: pointer;
-    text-decoration: none;
-    transition: color 0.2s, background 0.2s;
-    letter-spacing: 0.02em;
-
-    &:hover {
-      color: ${colors.foreground};
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    &--active {
-      color: ${colors.foreground};
-      background: rgba(255, 255, 255, 0.1);
-    }
-
-    &--external {
-      opacity: 0.45;
-
-      &:hover {
-        opacity: 0.85;
-      }
+    .navbar__toggle {
+      display: inline-flex;
     }
   }
 `
 
+const pages = [
+  { id: 'showcase', href: '/', label: 'Showcase' },
+  { id: 'demo', href: '/demo', label: 'Demo' },
+  { id: 'scroll-edge', href: '/scroll-edge', label: 'ScrollEdge' },
+] as const
+
+export type NavbarPage = (typeof pages)[number]['id']
+
 interface NavbarProps {
-  current: 'showcase' | 'demo'
+  current: NavbarPage
+  settings?: GlassStudioProps
+  convexity?: number
+  onMenuOpenChange?: (open: boolean) => void
 }
 
-export default function Navbar({ current }: NavbarProps) {
-  const [hidden, setHidden] = useState(false)
+/** Render inside the page's LiquidGlassScene so navigation shares its renderer. */
+export default function Navbar({
+  current,
+  settings = GLASS_STUDIO_DEFAULTS,
+  convexity = 0,
+  onMenuOpenChange,
+}: NavbarProps) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const menuId = useId()
   const [menuOpen, setMenuOpen] = useState(false)
+  const closeMenu = useCallback(() => setMenuOpen(false), [])
 
   useEffect(() => {
-    let lastScrollY = window.scrollY
+    onMenuOpenChange?.(menuOpen)
+  }, [menuOpen, onMenuOpenChange])
 
-    const onScroll = () => {
-      const y = window.scrollY
-      if (y < 50) {
-        setHidden(false)
-      } else if (y > lastScrollY) {
-        setHidden(true)
-      } else {
-        setHidden(false)
-      }
-      lastScrollY = y
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 421px)')
+    const onChange = () => {
+      if (desktop.matches) closeMenu()
     }
+    desktop.addEventListener('change', onChange)
+    return () => desktop.removeEventListener('change', onChange)
+  }, [closeMenu])
 
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-
-  // Close mobile menu on scroll
   useEffect(() => {
     if (!menuOpen) return
-    const onScrollClose = () => setMenuOpen(false)
-    window.addEventListener('scroll', onScrollClose, { passive: true })
-    return () => window.removeEventListener('scroll', onScrollClose)
-  }, [menuOpen])
-
-  // Close mobile menu on outside click
-  useEffect(() => {
-    if (!menuOpen) return
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      if (!target.closest('[class*="navbar"]')) {
-        setMenuOpen(false)
-      }
+    const onPointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) closeMenu()
     }
-    // Delay adding listener so the toggle click isn't captured
-    const id = setTimeout(() => {
-      document.addEventListener('click', handleClick)
-    }, 0)
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      closeMenu()
+      menuButtonRef.current?.focus({ preventScroll: true })
+    }
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', closeMenu, { capture: true, passive: true })
     return () => {
-      clearTimeout(id)
-      document.removeEventListener('click', handleClick)
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', closeMenu, true)
     }
-  }, [menuOpen])
+  }, [menuOpen, closeMenu])
 
-  // Close mobile menu when navigating
-  const closeMenu = () => setMenuOpen(false)
-
-  const linkClass = (page: 'showcase' | 'demo') =>
-    `navbar__link${current === page ? ' navbar__link--active' : ''}`
-
-  const mobileLinkClass = (page: 'showcase' | 'demo') =>
-    `navbar__mobile-link${current === page ? ' navbar__mobile-link--active' : ''}`
+  const links = () => (
+    <>
+      {pages.map((page) => (
+        <Link
+          key={page.id}
+          href={page.href}
+          className="navbar__link"
+          aria-current={page.id === current ? 'page' : undefined}
+          onClick={closeMenu}
+        >
+          {page.label}
+        </Link>
+      ))}
+      <a
+        className="navbar__link"
+        href="https://github.com/SAHAJOHN/react-liquid-glass-component"
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={closeMenu}
+      >
+        GitHub
+      </a>
+    </>
+  )
 
   return (
-    <NavbarStyled $hidden={hidden}>
+    <NavbarStyled
+      {...settings}
+      convexity={convexity}
+      ref={rootRef}
+      className="navbar"
+      role="navigation"
+      aria-label="Main navigation"
+      style={{ position: 'fixed' }}
+    >
       <div className="navbar__inner">
         <span className="navbar__logo">Liquid Glass</span>
-
-        {/* Desktop links */}
-        <div className="navbar__links">
-          <Link href="/" className={linkClass('showcase')}>
-            Showcase
-          </Link>
-          <Link href="/demo" className={linkClass('demo')}>
-            Demo
-          </Link>
-          <a
-            className="navbar__link navbar__link--external"
-            href="https://github.com/SAHAJOHN/react-liquid-glass-component"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            GitHub ↗
-          </a>
-        </div>
-
-        {/* Hamburger toggle */}
+        <div className="navbar__links">{links()}</div>
         <button
+          ref={menuButtonRef}
+          type="button"
           className="navbar__toggle"
-          onClick={() => setMenuOpen((v) => !v)}
-          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
           aria-expanded={menuOpen}
+          aria-controls={menuId}
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          onClick={() => setMenuOpen((open) => !open)}
         >
-          <div
-            className={`navbar__hamburger${menuOpen ? ' navbar__hamburger--open' : ''}`}
-          >
-            <span className="navbar__hamburger-line" />
-            <span className="navbar__hamburger-line" />
-            <span className="navbar__hamburger-line" />
-          </div>
+          {menuOpen ? 'Close' : 'Menu'}
         </button>
       </div>
-
-      {/* Mobile dropdown */}
-      <AnimatePresence>
-        {menuOpen && (
-          <motion.div
-            className="navbar__mobile"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-          >
-            <Link
-              href="/"
-              className={mobileLinkClass('showcase')}
-              onClick={closeMenu}
-            >
-              Showcase
-            </Link>
-            <Link
-              href="/demo"
-              className={mobileLinkClass('demo')}
-              onClick={closeMenu}
-            >
-              Demo
-            </Link>
-            <a
-              className="navbar__mobile-link navbar__mobile-link--external"
-              href="https://github.com/SAHAJOHN/react-liquid-glass-component"
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={closeMenu}
-            >
-              GitHub ↗
-            </a>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {menuOpen && (
+        <div className="navbar__mobile" id={menuId}>
+          {links()}
+        </div>
+      )}
     </NavbarStyled>
   )
 }

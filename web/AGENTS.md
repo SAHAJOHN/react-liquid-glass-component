@@ -16,12 +16,12 @@ const MyComponentStyled = styled.div`
   }
 
   .my-component__title {
-    font-size: ${theme.fontSize.lg};
-    color: ${theme.colors.foreground};
+    font-size: ${fontSize.lg};
+    color: ${colors.foreground};
   }
 
   .my-component__title--active {
-    color: ${theme.colors.primary};
+    color: ${colors.foreground};
   }
 
   .my-component__icon {
@@ -49,9 +49,17 @@ Use BEM naming:
 
 ### Design Tokens
 
-All design tokens live in `app/lib/responsive.ts`. Import them in styled-components:
+All design tokens live in `@/lib/responsive.ts`. Import them in styled-components:
 
 ```ts
 import { colors, fonts, fontWeight, fontSize, borderRadius, sectionPadding, sectionGap, breakpoints } from "@/lib/responsive";
+```
+
+### LiquidGlass import
+
+The `react-liquid-glass-component` package uses styled-components, so it must stay on the client side in the Next.js App Router. Do not import it directly from the npm package in server pages. Use the re-export:
+
+```ts
+import { LiquidGlass, type LiquidGlassProps } from "@/components/liquid-glass-client";
 ```
 

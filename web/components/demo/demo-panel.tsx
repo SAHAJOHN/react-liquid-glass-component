@@ -1,265 +1,288 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import styled from 'styled-components'
-import { fontSize, fontWeight, colors, sectionPadding, breakpoints } from '@/lib/responsive'
-import { LiquidGlass } from '@/components/liquid-glass-client'
-import { Slider } from './slider'
-import { Select } from './select'
-import { ColorPicker } from './color-picker'
-import { DEFAULT_PROPS, BLEND_MODES, type DemoProps } from '@/lib/demo-props'
+import {
+  LiquidGlass,
+  LiquidGlassScene,
+  type GlassStudioProps,
+} from '@/components/liquid-glass-client'
+import Navbar from '@/components/navbar'
+import VideoBackground from '@/components/video-background'
+import GlassControls from '@/components/showcase/glass-controls'
+import { createStudioSettings } from '@/lib/studio-settings'
+import { colors, fonts, fontWeight } from '@/lib/responsive'
 
 const DemoStyled = styled.div`
-  display: flex;
-  justify-content: center;
-  margin-top: 80px;
+  min-width: 0;
+  min-height: 100dvh;
+  background: #102031;
+  color: ${colors.foreground};
 
-  .demo__controls {
-    width: 100%;
-    padding: ${sectionPadding.controls};
-    height: 100%;
-    overflow-y: auto;
-    align-self: stretch;
-    justify-self: stretch;
+  .demo__scene {
+    min-width: 0;
+    min-height: 100dvh;
   }
 
-  .demo__header {
+  .demo__main {
+    position: relative;
+    z-index: 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
+    gap: 24px;
+    width: 100%;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: calc(104px + max(16px, env(safe-area-inset-top))) max(16px, env(safe-area-inset-right))
+      calc(40dvh + 48px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  }
+
+  .demo__header,
+  .demo__preview,
+  .demo__details {
+    width: 960px;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .demo__title {
-    font-size: ${fontSize.lg};
-    font-weight: ${fontWeight.semibold};
-    letter-spacing: -0.01em;
+    display: inline-block;
+    margin: 0;
+    padding: 6px 12px;
+    border-radius: 10px;
+    background: rgba(28, 78, 105, 0.72);
     color: ${colors.foreground};
+    font-size: clamp(1.8rem, 4vw, 2.4rem);
+    font-weight: ${fontWeight.bold};
+    line-height: 1.2;
+    letter-spacing: -0.03em;
   }
 
-  .demo__reset-btn {
-    background: ${colors.buttonBackground};
-    border: 1px solid ${colors.buttonBorder};
-    color: ${colors.foregroundDim};
-    font: inherit;
-    font-size: ${fontSize.sm};
-    padding: 4px 12px;
+  .demo__description {
+    display: table;
+    max-width: 100%;
+    margin: 8px 0 0;
+    padding: 4px 8px;
     border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.2s;
+    background: rgba(28, 78, 105, 0.72);
+    color: ${colors.foreground};
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
 
-    &:hover {
-      background: rgba(255, 255, 255, 0.14);
-      color: ${colors.foreground};
+  .demo__preview {
+    height: clamp(240px, 32dvh, 320px);
+  }
+
+  .demo__preview > .liquid-glass__content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    min-width: 0;
+    padding: 24px;
+    text-align: center;
+  }
+
+  .demo__preview-title {
+    margin: 0;
+    padding: 6px 12px;
+    border-radius: 10px;
+    color: ${colors.foreground};
+    font-size: clamp(1.5rem, 4vw, 2rem);
+    font-weight: ${fontWeight.semibold};
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+
+  .demo__copy {
+    min-width: 120px;
+    min-height: 44px;
+    padding: 10px 16px;
+    border: 1px solid ${colors.buttonBorder};
+    border-radius: 10px;
+    background: transparent;
+    color: ${colors.foreground};
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: ${fontWeight.medium};
+    line-height: 1.5;
+    cursor: pointer;
+
+    &:focus-visible {
+      outline: 2px solid #b4eaff;
+      outline-offset: 3px;
     }
   }
 
-  .demo__control-group {
-    margin-bottom: 14px;
+  .demo__details {
+    padding: 24px;
+    border-radius: 16px;
+    background: rgba(28, 78, 105, 0.78);
   }
 
-  .demo__control-label {
-    display: block;
-    font-size: ${fontSize.base};
+  .demo__details-title {
+    margin: 0 0 8px;
+    color: ${colors.foreground};
+    font-size: 1rem;
+    font-weight: ${fontWeight.semibold};
+    line-height: 1.4;
+  }
+
+  .demo__hint {
+    margin: 0 0 16px;
     color: ${colors.foregroundMuted};
-    margin-bottom: 8px;
+    font-size: 0.875rem;
+    line-height: 1.6;
   }
 
-  .demo__chroma-row {
-    display: flex;
-    gap: 12px;
+  .demo__code {
+    margin: 0;
+    color: ${colors.foreground};
+    font-family: ${fonts.mono};
+    font-size: 0.8rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 
-    @media (max-width: ${breakpoints.mobile}) {
-      flex-direction: column;
-      gap: 8px;
+  @media (min-width: 900px) {
+    .demo__main {
+      padding-bottom: 80px;
+    }
+  }
+
+  @media (max-width: 899px) {
+    .demo__controls > aside {
+      left: max(16px, env(safe-area-inset-left));
+      right: max(16px, env(safe-area-inset-right));
+      width: auto;
+      max-height: 40dvh;
+    }
+  }
+
+  @media (max-width: 700px) {
+    .demo__main {
+      gap: 20px;
+      padding-top: calc(96px + max(16px, env(safe-area-inset-top)));
+      padding-left: max(16px, env(safe-area-inset-left));
+      padding-right: max(16px, env(safe-area-inset-right));
+    }
+    .demo__preview {
+      height: clamp(220px, 30dvh, 280px);
+    }
+    .demo__preview > .liquid-glass__content {
+      padding: 20px;
+    }
+    .demo__details {
+      padding: 20px;
     }
   }
 `
 
+const usageCode = `<LiquidGlassScene>
+  <main>Background content</main>
+  <LiquidGlass {...settings}>
+    Your content
+  </LiquidGlass>
+</LiquidGlassScene>`
+
 export function DemoPanel() {
-  const [p, set] = useState<DemoProps>(DEFAULT_PROPS)
+  const [settings, setSettings] = useState<GlassStudioProps>(createStudioSettings)
+  const [convexity, setConvexity] = useState(0)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const mounted = useRef(true)
 
-  const setNum = (key: keyof DemoProps) =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
-      set((prev) => ({ ...prev, [key]: parseFloat(e.target.value) }))
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      if (copyTimer.current !== undefined) clearTimeout(copyTimer.current)
+    }
+  }, [])
 
-  const setChan = (key: 'xChannel' | 'yChannel') =>
-    (e: React.ChangeEvent<HTMLSelectElement>) =>
-      set((prev) => ({ ...prev, [key]: e.target.value as 'R' | 'G' | 'B' }))
+  const copy = async () => {
+    if (copyTimer.current !== undefined) clearTimeout(copyTimer.current)
+    try {
+      await navigator.clipboard.writeText(
+        `<LiquidGlass\n  {...${JSON.stringify(settings, null, 2)}}\n  convexity={${convexity}}\n/>`
+      )
+      if (mounted.current) setCopyStatus('copied')
+    } catch {
+      if (mounted.current) setCopyStatus('failed')
+    }
+    if (mounted.current) copyTimer.current = setTimeout(() => setCopyStatus('idle'), 2500)
+  }
 
-  const setBlendMode = (e: React.ChangeEvent<HTMLSelectElement>) =>
-    set((prev) => ({
-      ...prev,
-      mixBlendMode: e.target.value as DemoProps['mixBlendMode'],
-    }))
-
-  const setColor = (e: React.ChangeEvent<HTMLInputElement>) =>
-    set((prev) => ({ ...prev, glassColor: e.target.value }))
+  const reset = () => {
+    setSettings(createStudioSettings())
+    setConvexity(0)
+  }
 
   return (
     <DemoStyled>
-      <LiquidGlass
-        borderRadius={p.borderRadius}
-        borderWidth={p.borderWidth}
-        blur={p.blur}
-        opacity={p.opacity}
-        brightness={p.brightness}
-        saturation={p.saturation}
-        distortionScale={p.distortionScale}
-        displace={p.displace}
-        backgroundOpacity={p.backgroundOpacity}
-        glassColor={p.glassColor}
-        redOffset={p.redOffset}
-        greenOffset={p.greenOffset}
-        blueOffset={p.blueOffset}
-        xChannel={p.xChannel}
-        yChannel={p.yChannel}
-        mixBlendMode={p.mixBlendMode}
-        style={{
-          padding: 0,
-          maxWidth: '100%',
-          maxHeight: '80dvh',
-          width: '440px',
-        }}
-      >
-        <div className="demo__controls">
-          <div className="demo__header">
-            <h3 className="demo__title">Properties</h3>
-            <button className="demo__reset-btn" onClick={() => set(DEFAULT_PROPS)}>
-              Reset
+      <LiquidGlassScene className="demo__scene" background="#102031">
+        <VideoBackground src="/videos/bangkok.mp4" />
+        <Navbar
+          current="demo"
+          settings={settings}
+          convexity={convexity}
+          onMenuOpenChange={setMenuOpen}
+        />
+        <main className="demo__main">
+          <header className="demo__header">
+            <h1 className="demo__title">Live preview</h1>
+            <p className="demo__description">Tune the glass over a moving scene.</p>
+          </header>
+          <section className="demo__details" aria-labelledby="demo-settings-title">
+            <h2 className="demo__details-title" id="demo-settings-title">
+              Use these settings
+            </h2>
+            <p className="demo__hint">
+              Copy settings includes every material value. Place your page and glass in the same
+              scene.
+            </p>
+            <pre className="demo__code">
+              <code>{usageCode}</code>
+            </pre>
+          </section>
+          <LiquidGlass {...settings} convexity={convexity} className="demo__preview">
+            <h2 className="demo__preview-title">Liquid Glass</h2>
+            <button
+              type="button"
+              className="demo__copy"
+              onClick={copy}
+              aria-label={
+                copyStatus === 'copied'
+                  ? 'Settings copied'
+                  : copyStatus === 'failed'
+                    ? 'Copy failed. Retry settings'
+                    : 'Copy current glass settings'
+              }
+              aria-live="polite"
+            >
+              {copyStatus === 'copied'
+                ? 'Copied'
+                : copyStatus === 'failed'
+                  ? 'Retry copy'
+                  : 'Copy settings'}
             </button>
-          </div>
-
-          <Slider
-            label="Border Radius"
-            value={p.borderRadius}
-            min={0}
-            max={400}
-            onChange={setNum('borderRadius')}
-          />
-          <Slider
-            label="Border Width"
-            value={p.borderWidth}
-            min={0}
-            max={0.3}
-            step={0.01}
-            onChange={setNum('borderWidth')}
-          />
-          <Slider
-            label="Blur"
-            value={p.blur}
-            min={0}
-            max={80}
-            onChange={setNum('blur')}
-          />
-          <Slider
-            label="Opacity"
-            value={p.opacity}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={setNum('opacity')}
-          />
-          <Slider
-            label="Brightness"
-            value={p.brightness}
-            min={0}
-            max={100}
-            onChange={setNum('brightness')}
-          />
-          <Slider
-            label="Saturation"
-            value={p.saturation}
-            min={0}
-            max={6}
-            step={0.1}
-            onChange={setNum('saturation')}
-          />
-          <Slider
-            label="Distortion Scale"
-            value={p.distortionScale}
-            min={-600}
-            max={600}
-            onChange={setNum('distortionScale')}
-          />
-          <Slider
-            label="Displace"
-            value={p.displace}
-            min={0}
-            max={10}
-            step={0.1}
-            onChange={setNum('displace')}
-          />
-          <Slider
-            label="Background Opacity"
-            value={p.backgroundOpacity}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={setNum('backgroundOpacity')}
-          />
-          <ColorPicker
-            label="Glass Color"
-            value={p.glassColor}
-            onChange={setColor}
-          />
-
-          <div className="demo__control-group">
-            <span className="demo__control-label">Chromatic Offsets</span>
-            <div className="demo__chroma-row">
-              <Slider
-                label="R"
-                value={p.redOffset}
-                min={-60}
-                max={60}
-                onChange={setNum('redOffset')}
-                compact
-              />
-              <Slider
-                label="G"
-                value={p.greenOffset}
-                min={-60}
-                max={60}
-                onChange={setNum('greenOffset')}
-                compact
-              />
-              <Slider
-                label="B"
-                value={p.blueOffset}
-                min={-60}
-                max={60}
-                onChange={setNum('blueOffset')}
-                compact
-              />
-            </div>
-          </div>
-
-          <div className="demo__control-group">
-            <span className="demo__control-label">Channels</span>
-            <div className="demo__chroma-row">
-              <Select
-                label="X Channel"
-                value={p.xChannel}
-                options={['R', 'G', 'B']}
-                onChange={setChan('xChannel')}
-              />
-              <Select
-                label="Y Channel"
-                value={p.yChannel}
-                options={['R', 'G', 'B']}
-                onChange={setChan('yChannel')}
-              />
-            </div>
-          </div>
-
-          <Select
-            label="Mix Blend Mode"
-            value={p.mixBlendMode}
-            options={BLEND_MODES}
-            onChange={setBlendMode}
-          />
-        </div>
-      </LiquidGlass>
+          </LiquidGlass>
+        </main>
+      </LiquidGlassScene>
+      <div className="demo__controls" hidden={menuOpen}>
+        <GlassControls
+          settings={settings}
+          onSettingsChange={setSettings}
+          convexity={convexity}
+          onConvexityChange={setConvexity}
+          onReset={reset}
+        />
+      </div>
     </DemoStyled>
   )
 }

@@ -3,7 +3,7 @@ title: 'Setup & Workflow'
 project: 'react-liquid-glass-component'
 type: 'reference'
 status: '✅ Active'
-last_updated: '2026-06-22'
+last_updated: '2026-11-02'
 ai_context: 'Development setup, build pipeline, testing, and npm publish workflow for react-liquid-glass-component.'
 related:
   - 'architecture'
@@ -18,8 +18,9 @@ tags:
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 20.9+ for the demo (the library's tooling supports Node.js 18+)
 - npm 9+
+- Yarn for the Next.js demo in `web/`
 
 ---
 
@@ -29,19 +30,47 @@ tags:
 npm install
 ```
 
+The root package is the library. The demo has its own dependency install:
+
+```bash
+cd web
+yarn install
+```
+
+The demo uses the published library version declared in `web/package.json`. For local
+library development, temporarily replace that dependency with `file:..`; it is a local
+package dependency, not a guaranteed symlink. After changing library source, build the
+root package and sync the generated `dist/` into the installed copy before building the
+demo:
+
+```bash
+# from the repository root
+npm run build
+rsync -a --delete dist/ web/node_modules/react-liquid-glass-component/dist/
+```
+
+If the installed copy is missing or stale, reinstall from `web/` with `yarn install` and
+repeat the root build/sync step. The sync updates only `dist/`; if the library's
+`package.json` exports or version change, reinstall the local dependency and verify the
+installed `package.json` reflects those changes as well.
+
+Version `0.3.0` adds the managed `LiquidGlassScene`, Studio material exports, and
+`ScrollEdge` subpath. Published npm `0.2.1` does not contain those exports. Restore the
+published dependency and run `yarn install` inside `web/` before deploying the demo.
+
 ---
 
 ## Scripts
 
-| Script | Command | Description |
-|---|---|---|
-| `dev` | `tsup --watch` | Watch mode — rebuilds `src/` on changes |
-| `build` | `tsup` | Production build → `dist/` |
-| `typecheck` | `tsc --noEmit` | TypeScript type checking |
-| `test` | `vitest run` | Run tests once |
-| `test:watch` | `vitest` | Watch mode for tests |
-| `lint` | `eslint src --ext .ts,.tsx` | ESLint check |
-| `format` | `prettier --write "src/**/*.{ts,tsx,json,md}"` | Auto-format code |
+| Script       | Command                                        | Description                             |
+| ------------ | ---------------------------------------------- | --------------------------------------- |
+| `dev`        | `tsup --watch`                                 | Watch mode — rebuilds `src/` on changes |
+| `build`      | `tsup`                                         | Production build → `dist/`              |
+| `typecheck`  | `tsc --noEmit`                                 | TypeScript type checking                |
+| `test`       | `vitest run`                                   | Run tests once                          |
+| `test:watch` | `vitest`                                       | Watch mode for tests                    |
+| `lint`       | `eslint src --ext .ts,.tsx`                    | ESLint check                            |
+| `format`     | `prettier --write "src/**/*.{ts,tsx,json,md}"` | Auto-format code                        |
 
 ---
 
@@ -55,7 +84,7 @@ npm run dev
 
 Rebuilds `dist/` automatically when `src/` changes.
 
-### 2. Playground (`web/`)
+### 2. Demo site (`web/`)
 
 ```bash
 cd web
@@ -63,7 +92,19 @@ yarn install
 yarn dev
 ```
 
-Opens at `localhost:3000`. Imports the library via a direct symlink — uses the built `dist/` output, so run `npm run build` in the root after making library changes.
+Opens at `http://localhost:3000`. The demo uses Next.js App Router and styled-components.
+Interactive pages import the library through `@/components/liquid-glass-client`; do not
+import the package directly from a server page. For a production-style local build use
+the webpack builder:
+
+```bash
+LIQUID_GLASS_DIST_DIR=.next-preview-local yarn build --webpack
+LIQUID_GLASS_DIST_DIR=.next-preview-local yarn start
+```
+
+The custom `LIQUID_GLASS_DIST_DIR` keeps a preview build separate from another running
+Next process. The repository's current Next/font setup is verified with `--webpack`, and
+`web/vercel.json` uses the same builder for the hosted demo.
 
 ### 3. Run tests
 
@@ -91,16 +132,18 @@ npm run lint
 
 ## Build Output
 
-`npm run build` produces:
+`npm run build` produces two library entry points:
 
-| File | Format | Size |
-|---|---|---|
-| `dist/index.js` | ESM | ~8 KB minified |
-| `dist/index.cjs` | CommonJS | ~8 KB minified |
-| `dist/index.d.ts` | TypeScript declarations | ~1 KB |
-| `dist/index.js.map` / `.cjs.map` | Sourcemaps | — |
+| File                                               | Format                                                         | Size |
+| -------------------------------------------------- | -------------------------------------------------------------- | ---- |
+| `dist/index.js` / `dist/index.cjs`                 | Main ESM/CommonJS bundle                                       | —    |
+| `dist/scroll-edge.js` / `dist/scroll-edge.cjs`     | `react-liquid-glass-component/scroll-edge` ESM/CommonJS bundle | —    |
+| `dist/index.d.ts` / `dist/index.d.cts`             | Main TypeScript declarations                                   | —    |
+| `dist/scroll-edge.d.ts` / `dist/scroll-edge.d.cts` | ScrollEdge declarations                                        | —    |
 
-Bundle is tree-shaken and minified. `react`, `react-dom`, and `styled-components` are externalized (peer dependencies).
+Bundles are tree-shaken and minified. Source maps are disabled. `react`, `react-dom`,
+`styled-components`, and `html2canvas` are externalized by tsup; React, React DOM, and
+styled-components remain peer dependencies, while html2canvas is a package dependency.
 
 ---
 
@@ -115,23 +158,24 @@ npm run build
 npm pack --dry-run   # Check tarball contents
 
 # 2. Bump version (patch/minor/major)
-npm version patch    # 0.1.0 → 0.1.1
-# or: npm version minor  # 0.1.0 → 0.2.0
+npm version patch --no-git-tag-version    # choose the next release version
+# or: npm version minor --no-git-tag-version
 
 # 3. Publish
 npm publish
 
-# 4. (Optional) Tag version
-git tag v0.1.0
-git push origin v0.1.0
+# 4. (Optional) After committing the version change, tag that commit
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 ### what gets published
 
 `npm pack --dry-run` shows exactly which files will be in the tarball:
 
-- `dist/` (compiled output)
+- `dist/` (main and ScrollEdge compiled output)
 - `README.md`
+- `THIRD_PARTY_NOTICES.md`
 - `LICENSE`
 - `package.json`
 
@@ -145,5 +189,7 @@ No source files, configs, or demos are included.
 - [ ] `npm run typecheck` — 0 errors
 - [ ] `npm run test` — all tests pass
 - [ ] `npm run build` — ESM + CJS + .d.ts generated
-- [ ] `npm pack --dry-run` — only the right files are included
-- [ ] `cd web && yarn install && yarn build` — demo site builds
+- [ ] `npm pack --dry-run` — includes `dist/` and `THIRD_PARTY_NOTICES.md`
+- [ ] `npm run build`, then sync `dist/` into `web/node_modules/react-liquid-glass-component/dist/`
+- [ ] `cd web && yarn lint` — demo lint passes
+- [ ] `cd web && LIQUID_GLASS_DIST_DIR=.next-preview-check yarn build --webpack` — demo site builds
