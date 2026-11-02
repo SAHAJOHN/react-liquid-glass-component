@@ -1,115 +1,56 @@
 ---
-title: 'react-liquid-glass-component — Knowledge Hub'
+title: 'react-liquid-glass-component documentation'
 project: 'react-liquid-glass-component'
 type: 'hub'
 status: '✅ Active'
-last_updated: '2026-06-22'
-ai_context: 'Central hub for react-liquid-glass-component knowledge graph. Entry point for AI agents and developers. Contains project overview, component architecture, API reference, and dev workflow.'
+last_updated: '2026-11-02'
+ai_context: 'Entry point for the current API, architecture, setup, and demo notes.'
 related:
   - 'architecture'
   - 'api'
   - 'setup'
+  - 'canvas-showcase'
 tags:
+  - 'react'
   - 'liquid-glass'
-  - 'hub'
-  - 'knowledge-graph'
+  - 'documentation'
 ---
 
-# react-liquid-glass-component — Knowledge Graph Hub
+# Documentation hub
 
-## 🎯 AI Context / System Prompt
+This folder documents the published `0.3.0` package and the Next.js demo in `web/`.
 
-> You are an AI assistant for **react-liquid-glass-component** — a React library that renders a liquid glass effect using SVG filters with chromatic aberration and frosted blur.
->
-> **Key Facts:**
->
-> - **Framework:** React 18+
-> - **Language:** TypeScript 5.6 (strict mode: `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`)
-> - **Styling:** styled-components 6+
-> - **Build:** tsup (ESM + CJS + .d.ts)
-> - **Test:** Vitest + Testing Library + jsdom
-> - **Core Feature:** Wraps children in a frosted glass pane with configurable distortion, RGB channel offset, blur, and saturation
->
-> **Rules:**
->
-> 1. Read [[architecture]] before modifying the component
-> 2. Check [[api]] for prop types and defaults
-> 3. Reference [[setup]] for build/test/publish commands
-> 4. Follow existing patterns — keep the fallback chain intact
+## Start here
 
----
+- [API reference](api.md): imports, props, defaults, `LiquidGlassScene`, and `ScrollEdge`.
+- [Architecture](architecture.md): standalone rendering, managed scenes, capture, and fallback behavior.
+- [Setup and workflow](setup.md): install, build, test, local demo work, and release checks.
+- [Showcase and managed scene](canvas-showcase.md): scene limits, frame ownership, and browser verification.
 
-## 🗺️ Knowledge Graph
+## Public entry points
 
-```mermaid
-graph LR
-    A[README<br/>Hub] --> B[architecture]
-    A --> C[api]
-    A --> D[setup]
-    B -.-> C
-    D -.-> B
+```tsx
+import {
+  GLASS_STUDIO_DEFAULTS,
+  GLASS_STUDIO_RANGES,
+  LiquidGlass,
+  LiquidGlassScene,
+  ScrollEdge,
+} from 'react-liquid-glass-component'
+
+import { ScrollEdge as ScrollEdgeSubpath } from 'react-liquid-glass-component/scroll-edge'
 ```
 
----
+Use a client component when importing these components in a Next.js App Router application.
+The `/scroll-edge` subpath also exports the `ScrollEdgePosition`, `ScrollEdgeCurve`, and
+`ScrollEdgePreset` types.
 
-## 📊 Status Dashboard
+## Current checks
 
-| File | Type | Status | Description |
-|---|---|---|---|
-| [[architecture]] | architecture | ✅ Active | SVG filter system, fallback chain, component internals |
-| [[api]] | reference | ✅ Active | Props, types, usage examples |
-| [[setup]] | reference | ✅ Active | Build, test, publish workflow |
+The library uses TypeScript, tsup, Vitest, Testing Library, and jsdom. The demo uses Next.js,
+Yarn, and styled-components; its production build uses webpack. Before a release, run the root typecheck,
+lint, test, build, and pack checks, then run the demo lint and webpack build.
 
----
-
-## 📂 Directory Structure
-
-```
-react-liquid-glass-component/
-├── src/
-│   ├── index.ts                  # Public entry (named export)
-│   ├── LiquidGlass.tsx           # Component with forwardRef
-│   ├── styles.ts                 # styled-component
-│   ├── setupTests.ts             # Test setup (jest-dom + ResizeObserver mock)
-│   └── __tests__/
-│       └── LiquidGlass.test.tsx  # 9 smoke tests
-├── web/                           # Next.js 16 demo site<!--nobreak-->
-├── docs/knowledge/
-│   ├── README.md                 # ← This file — Hub
-│   ├── architecture.md           # How the component works
-│   ├── api.md                    # Props reference
-│   └── setup.md                  # Dev workflow
-├── dist/                         # Build output (gitignored)
-├── package.json
-├── tsconfig.json / tsconfig.build.json
-├── tsup.config.ts
-├── vitest.config.ts
-├── .eslintrc.cjs / .prettierrc
-└── README.md                     # User-facing docs (npm)
-```
-
----
-
-## 🔗 Entry Points
-
-- [[README.md|../../README.md]] — User-facing docs (install, usage, props table)
-- [[../../LICENSE]] — MIT License
-
----
-
-## 🔄 How to Use This Graph
-
-**For AI agents:**
-
-1. **Read `architecture.md`** to understand the SVG filter pipeline and fallback system
-2. **Check `api.md`** when implementing new prop features or debugging prop behavior
-3. **Reference `setup.md`** for build commands and verification steps
-
-**For humans:**
-
-- Update `last_updated` in frontmatter when you modify a file
-- Keep this graph in sync with the actual codebase
-
----
-
-_Updated: 2026-06-20_
+The responsive browser check covers 33 route and viewport combinations. It
+also checks the mobile menu, native controls, ScrollEdge modes, portal alignment, and route
+cleanup.
