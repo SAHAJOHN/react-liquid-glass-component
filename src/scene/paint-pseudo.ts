@@ -3,9 +3,34 @@ import type { SceneRect } from './types'
 
 export type PseudoName = '::before' | '::after'
 
+export type PseudoMaskDetail =
+  | 'PSEUDO_MASK_IMAGE'
+  | 'PSEUDO_MASK_CLIP'
+  | 'PSEUDO_MASK_ORIGIN'
+  | 'PSEUDO_MASK_COMPOSITE'
+  | 'PSEUDO_MASK_SIZE'
+  | 'PSEUDO_MASK_REPEAT'
+  | 'PSEUDO_MASK_POSITION'
+  | 'PSEUDO_MASK_MODE'
+  | 'PSEUDO_MASK_BORDER'
+  | 'PSEUDO_MASK_PADDING'
+  | 'PSEUDO_MASK_RADIUS'
+
+export type PseudoEffectDetail =
+  | PseudoMaskDetail
+  | 'PSEUDO_TRANSFORM'
+  | 'PSEUDO_FILTER'
+  | 'PSEUDO_BACKDROP'
+  | 'PSEUDO_SHADOW'
+  | 'PSEUDO_CLIP'
+  | 'PSEUDO_BORDER_IMAGE'
+  | 'PSEUDO_BLEND'
+  | 'PSEUDO_BACKGROUND_BLEND'
+  | 'PSEUDO_ATTACHMENT'
+
 export type PseudoBoxMeasurement =
   | { status: 'none' }
-  | { status: 'unsupported'; reason: string }
+  | { status: 'unsupported'; reason: string; detail?: PseudoEffectDetail }
   | {
       status: 'ready'
       pseudo: PseudoName
@@ -19,7 +44,7 @@ export type PseudoBoxMeasurement =
 
 export type PaintedPseudo =
   | { status: 'none' }
-  | { status: 'unsupported'; reason: string }
+  | { status: 'unsupported'; reason: string; detail?: PseudoEffectDetail }
   | {
       status: 'ready'
       pseudo: PseudoName
@@ -58,22 +83,41 @@ const axisScale = (value: string): { x: number; y: number } | null => {
 }
 
 /** Recognize only the opaque two-layer XOR mask used to create a padding-width ring. */
-function hasRingMask(style: CSSStyleDeclaration): boolean {
-  const image = style.maskImage || style.getPropertyValue('-webkit-mask-image')
-  const layers = splitCss(image || '')
+function ringMaskDetail(style: CSSStyleDeclaration): PseudoMaskDetail | null {
   const black =
     /^linear-gradient\(\s*rgb\(0,\s*0,\s*0\)\s+0(?:px|%)?,\s*rgb\(0,\s*0,\s*0\)\s+0(?:px|%)?\s*\)$/
-  const equalLayers = (value: string, expected: string) =>
-    splitCss(value).length === 2 && splitCss(value).every((part) => part === expected)
-  const zeroPositions = (value: string) => {
-    const positions = splitCss(value)
-    return positions.length === 2 && positions.every((part) => /^(?:0px|0%) (?:0px|0%)$/.test(part))
+  // CSS repeats a shorter value list to match the number of mask layers.
+  const equalLayers = (value: string | undefined, expected: string) => {
+    const parts = splitCss(value ?? '')
+    return (parts.length === 1 || parts.length === 2) && parts.every((part) => part === expected)
   }
-  const pair = (value: string, a: string, b: string) => {
-    const parts = splitCss(value)
+  const zeroPositions = (value: string | undefined) => {
+    const positions = splitCss(value ?? '')
+    return (
+      (positions.length === 1 || positions.length === 2) &&
+      positions.every((part) => /^(?:0px|0%) (?:0px|0%)$/.test(part))
+    )
+  }
+  const pair = (value: string | undefined, a: string, b: string) => {
+    const parts = splitCss(value ?? '')
     return parts.length === 2 && parts[0] === a && parts[1] === b
   }
   const property = (name: string) => style.getPropertyValue(name).trim()
+  // Both CSSOM families can be present; do not silently prefer one when they disagree.
+  const compatible = (
+    prefixed: string | undefined,
+    standard: string | undefined,
+    prefixedMatches: (value: string) => boolean,
+    standardMatches = prefixedMatches
+  ) => {
+    const a = (prefixed ?? '').trim()
+    const b = (standard ?? '').trim()
+    return Boolean(a || b) && (!a || prefixedMatches(a)) && (!b || standardMatches(b))
+  }
+  const imageMatches = (value: string) => {
+    const layers = splitCss(value)
+    return layers.length === 2 && layers.every((layer) => black.test(layer))
+  }
   const padding = [
     style.paddingLeft,
     style.paddingRight,
@@ -86,28 +130,53 @@ function hasRingMask(style: CSSStyleDeclaration): boolean {
     style.borderBottomRightRadius,
     style.borderBottomLeftRadius,
   ]
-  return (
-    layers.length === 2 &&
-    layers.every((layer) => black.test(layer)) &&
-    pair(property('-webkit-mask-clip') || style.maskClip, 'content-box', 'border-box') &&
-    pair(property('-webkit-mask-origin') || style.maskOrigin, 'content-box', 'border-box') &&
-    (equalLayers(property('-webkit-mask-composite'), 'xor') ||
-      equalLayers(style.maskComposite, 'exclude')) &&
-    equalLayers(property('-webkit-mask-size') || style.maskSize, 'auto') &&
-    equalLayers(property('-webkit-mask-repeat') || style.maskRepeat, 'repeat') &&
-    zeroPositions(property('-webkit-mask-position') || style.maskPosition) &&
-    (!style.maskMode || equalLayers(style.maskMode, 'match-source')) &&
-    [
+  if (!compatible(property('-webkit-mask-image'), style.maskImage, imageMatches))
+    return 'PSEUDO_MASK_IMAGE'
+  const boxPair = (value: string) => pair(value, 'content-box', 'border-box')
+  if (!compatible(property('-webkit-mask-clip'), style.maskClip, boxPair)) return 'PSEUDO_MASK_CLIP'
+  if (!compatible(property('-webkit-mask-origin'), style.maskOrigin, boxPair))
+    return 'PSEUDO_MASK_ORIGIN'
+  if (
+    !compatible(
+      property('-webkit-mask-composite'),
+      style.maskComposite,
+      (value) => equalLayers(value, 'xor') || pair(value, 'xor', 'source-over'),
+      (value) => equalLayers(value, 'exclude') || pair(value, 'exclude', 'add')
+    )
+  )
+    return 'PSEUDO_MASK_COMPOSITE'
+  if (
+    !compatible(property('-webkit-mask-size'), style.maskSize, (value) =>
+      equalLayers(value, 'auto')
+    )
+  )
+    return 'PSEUDO_MASK_SIZE'
+  if (
+    !compatible(property('-webkit-mask-repeat'), style.maskRepeat, (value) =>
+      equalLayers(value, 'repeat')
+    )
+  )
+    return 'PSEUDO_MASK_REPEAT'
+  if (!compatible(property('-webkit-mask-position'), style.maskPosition, zeroPositions))
+    return 'PSEUDO_MASK_POSITION'
+  if (style.maskMode && !equalLayers(style.maskMode, 'match-source')) return 'PSEUDO_MASK_MODE'
+  if (
+    ![
       style.borderLeftWidth,
       style.borderRightWidth,
       style.borderTopWidth,
       style.borderBottomWidth,
-    ].every((value) => (px(value || '0px') ?? Number.NaN) === 0) &&
-    padding[0] !== undefined &&
-    padding[0] > 0 &&
-    padding.every((value) => value === padding[0]) &&
-    radii.every((value) => value === radii[0])
+    ].every((value) => (px(value || '0px') ?? Number.NaN) === 0)
   )
+    return 'PSEUDO_MASK_BORDER'
+  if (
+    padding[0] === undefined ||
+    padding[0] <= 0 ||
+    !padding.every((value) => value === padding[0])
+  )
+    return 'PSEUDO_MASK_PADDING'
+  if (!radii.every((value) => value === radii[0])) return 'PSEUDO_MASK_RADIUS'
+  return null
 }
 
 interface EllipticalRadius {
@@ -255,26 +324,34 @@ export function measurePseudoBox(
     if (![scaleX, scaleY].every(Number.isFinite) || scaleX < 0.0001 || scaleY < 0.0001)
       return unsupported('Invalid pseudo-element ancestor scale')
   }
+  const unsupportedEffect = (detail: PseudoEffectDetail): PseudoBoxMeasurement => ({
+    status: 'unsupported',
+    reason: 'Pseudo-element effects require native HTML rendering',
+    detail,
+  })
+  if (!none(style.transform) || !none(style.translate) || !none(style.rotate) || !none(style.scale))
+    return unsupportedEffect('PSEUDO_TRANSFORM')
+  if (!none(style.filter)) return unsupportedEffect('PSEUDO_FILTER')
+  if (!none(style.backdropFilter) || !none(style.getPropertyValue('-webkit-backdrop-filter')))
+    return unsupportedEffect('PSEUDO_BACKDROP')
+  if (!none(style.boxShadow) || !none(style.textShadow)) return unsupportedEffect('PSEUDO_SHADOW')
+  if (!none(style.clipPath)) return unsupportedEffect('PSEUDO_CLIP')
+  if (!none(style.borderImageSource)) return unsupportedEffect('PSEUDO_BORDER_IMAGE')
+  if (!none(style.mixBlendMode)) return unsupportedEffect('PSEUDO_BLEND')
   if (
-    !none(style.transform) ||
-    !none(style.translate) ||
-    !none(style.rotate) ||
-    !none(style.scale) ||
-    !none(style.filter) ||
-    !none(style.backdropFilter) ||
-    !none(style.getPropertyValue('-webkit-backdrop-filter')) ||
-    !none(style.boxShadow) ||
-    !none(style.textShadow) ||
-    !none(style.clipPath) ||
-    ((!none(style.maskImage) || !none(style.getPropertyValue('-webkit-mask-image'))) &&
-      !hasRingMask(style)) ||
-    !none(style.borderImageSource) ||
-    !none(style.mixBlendMode) ||
-    (style.backgroundBlendMode &&
-      style.backgroundBlendMode.split(',').some((value) => value.trim() !== 'normal')) ||
-    !allLayers(style.backgroundAttachment, ['scroll'])
+    style.backgroundBlendMode &&
+    style.backgroundBlendMode.split(',').some((value) => value.trim() !== 'normal')
   )
-    return unsupported('Pseudo-element effects require native HTML rendering')
+    return unsupportedEffect('PSEUDO_BACKGROUND_BLEND')
+  if (!allLayers(style.backgroundAttachment, ['scroll']))
+    return unsupportedEffect('PSEUDO_ATTACHMENT')
+
+  if (!none(style.maskImage) || !none(style.getPropertyValue('-webkit-mask-image'))) {
+    const detail = ringMaskDetail(style)
+    if (detail) {
+      return unsupportedEffect(detail)
+    }
+  }
 
   const widths = [
     style.borderLeftWidth,
@@ -424,7 +501,7 @@ export function paintPseudoBox(
   }
   const issues = new Set<string>()
   try {
-    const ring = hasRingMask(measured.style)
+    const ring = ringMaskDetail(measured.style) === null
     // Draw the unrounded fill first. The mask applies the browser's elliptical
     // outside and inside curves, including its antialiasing, to that fill.
     const style = ring

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createSceneCompiler } from '../scene/dom-scene'
 import { paintBoxShadows } from '../scene/paint-shadow'
 import * as paintContent from '../scene/paint-content'
+import * as pseudoModule from '../scene/paint-pseudo'
 import * as paintLucideModule from '../scene/paint-lucide'
 import type * as PaintBoxModule from '../scene/paint-box'
 import type { SceneFrame, SceneRect } from '../scene/types'
@@ -102,6 +103,20 @@ function fixture() {
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+})
+
+it('reports the general pseudo failure and its sanitized detail', () => {
+  const { root, image, compiler } = fixture()
+  image.remove()
+  vi.spyOn(pseudoModule, 'measurePseudoBox').mockReturnValue({
+    status: 'unsupported',
+    reason: 'Pseudo-element effects require native HTML rendering',
+    detail: 'PSEUDO_MASK_COMPOSITE',
+  })
+  const result = compiler.compile(root, new Map(), frame, 'white', region)
+  expect(result.issues).toContain('Pseudo-element effects require native HTML rendering')
+  expect(result.issues).toContain('PSEUDO_MASK_COMPOSITE')
+  compiler.dispose()
 })
 
 describe('off-region image deferral', () => {

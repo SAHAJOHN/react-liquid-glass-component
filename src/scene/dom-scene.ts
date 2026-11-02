@@ -842,6 +842,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
             if (measured.status === 'none') return undefined
             if (measured.status === 'unsupported') {
               issues.add(measured.reason)
+              if (measured.detail) issues.add(measured.detail)
               return undefined
             }
             if (measured.zIndex !== 0 && !createsStackingContext(element, style)) {
@@ -912,7 +913,10 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
             if (cached?.key !== key) {
               const painted = paintPseudoBox(element, name, pseudoRatio)
               if (painted.status !== 'ready') {
-                if (painted.status === 'unsupported') issues.add(painted.reason)
+                if (painted.status === 'unsupported') {
+                  issues.add(painted.reason)
+                  if (painted.detail) issues.add(painted.detail)
+                }
                 return undefined
               }
               cached = { key, bitmap: painted.bitmap, issues: [] }
