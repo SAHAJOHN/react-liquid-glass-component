@@ -207,8 +207,11 @@ export function paintEllipsis(element: HTMLElement, ratio: number): EllipsisPain
   const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
   const fonts = document.fonts
   const version = fonts ? fontVersion(fonts) : 'none'
-  if (fonts && (fonts.status !== 'loaded' || !fonts.check(font, text)))
-    return unsupported('Ellipsis font is not ready')
+  if (fonts && fonts.status !== 'loaded') return unsupported('Ellipsis font is not ready')
+  // Some browsers report false if an unused fallback face in the font stack
+  // has not loaded. Compare the actual DOM and canvas text widths below in that
+  // case instead of waiting forever for a face the browser did not need.
+  const fontStackReady = !fonts || fonts.check(font, text)
   const letterSpacing = isZero(style.letterSpacing) ? '0px' : style.letterSpacing
   const key = JSON.stringify([
     text,
@@ -220,6 +223,7 @@ export function paintEllipsis(element: HTMLElement, ratio: number): EllipsisPain
     style.color,
     letterSpacing,
     version,
+    fontStackReady ? null : textBounds.width,
   ])
   const previous = bitmapCache.get(element)
   if (previous?.key === key)
@@ -242,6 +246,16 @@ export function paintEllipsis(element: HTMLElement, ratio: number): EllipsisPain
   context.direction = 'ltr'
   context.fillStyle = style.color
   context.textBaseline = 'alphabetic'
+  if (!fontStackReady) {
+    const measuredWidth = context.measureText(text).width
+    if (
+      !Number.isFinite(measuredWidth) ||
+      !Number.isFinite(textBounds.width) ||
+      Math.abs(measuredWidth - textBounds.width) > 1 ||
+      (fonts && fonts.status !== 'loaded')
+    )
+      return unsupported('Ellipsis font is not ready')
+  }
   const metrics = context.measureText('Mg')
   const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent
   if (!Number.isFinite(ascent)) return unsupported('Ellipsis font metrics unavailable')
@@ -253,6 +267,9 @@ export function paintEllipsis(element: HTMLElement, ratio: number): EllipsisPain
   context.clip()
   context.fillText(fitted, 0, textBounds.top - y + ascent)
   context.restore()
+  // Canvas text measurement/painting may itself trigger a delayed fallback
+  // face. Do not cache the interim bitmap while that face is loading.
+  if (fonts && fonts.status !== 'loaded') return unsupported('Ellipsis font is not ready')
   bitmapCache.set(element, { key, bitmap: canvas, text: fitted })
   return { status: 'ready', bitmap: canvas, rect: { x, y, width, height }, text: fitted }
 }

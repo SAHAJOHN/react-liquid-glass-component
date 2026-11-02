@@ -145,6 +145,68 @@ describe('ellipsis sprite cache', () => {
       reason: 'Adjacent text runs require native HTML rendering',
     })
   })
+
+  it('accepts an unused unloaded fallback only when DOM and canvas font metrics agree', () => {
+    const fonts = Object.assign(new EventTarget(), { status: 'loaded', check: () => false })
+    Object.defineProperty(document, 'fonts', { value: fonts, configurable: true })
+    const element = document.createElement('div')
+    element.style.cssText =
+      'visibility:visible;direction:ltr;writing-mode:horizontal-tb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;color:black;font-size:16px;font-family:sans-serif;font-style:normal;font-weight:400'
+    element.style.overflowX = 'hidden'
+    element.textContent = 'overflowing text'
+    Object.defineProperties(element, {
+      scrollWidth: { value: 100 },
+      clientWidth: { value: 8 },
+      clientHeight: { value: 20 },
+      innerText: { get: () => element.textContent },
+    })
+    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 20, 8, 20))
+    let nativeWidth = 16
+    const createRange = document.createRange.bind(document)
+    vi.spyOn(document, 'createRange').mockImplementation(() => {
+      const range = createRange()
+      range.getBoundingClientRect = () => new DOMRect(10, 20, nativeWidth, 20)
+      return range
+    })
+    let loadOnMeasure = false
+    const context = {
+      scale: vi.fn(),
+      measureText: (text: string) => {
+        if (loadOnMeasure) fonts.status = 'loading'
+        return { width: text.length, fontBoundingBoxAscent: 12 }
+      },
+      save: vi.fn(),
+      beginPath: vi.fn(),
+      rect: vi.fn(),
+      clip: vi.fn(),
+      fillText: vi.fn(),
+      restore: vi.fn(),
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context as unknown as CanvasRenderingContext2D
+    )
+    document.body.append(element)
+    expect(paintEllipsis(element, 1).status).toBe('ready')
+    nativeWidth = 30
+    expect(paintEllipsis(element, 1)).toEqual({
+      status: 'unsupported',
+      reason: 'Ellipsis font is not ready',
+    })
+    nativeWidth = 16
+    fonts.status = 'loading'
+    fonts.dispatchEvent(new Event('loading'))
+    expect(paintEllipsis(element, 1).status).toBe('unsupported')
+    fonts.status = 'loaded'
+    fonts.dispatchEvent(new Event('loadingdone'))
+    expect(paintEllipsis(element, 1).status).toBe('ready')
+    fonts.dispatchEvent(new Event('loadingdone'))
+    loadOnMeasure = true
+    expect(paintEllipsis(element, 1).status).toBe('unsupported')
+    loadOnMeasure = false
+    fonts.status = 'loaded'
+    fonts.dispatchEvent(new Event('loadingdone'))
+    expect(paintEllipsis(element, 1).status).toBe('ready')
+  })
 })
 
 describe('ellipsis safety checks', () => {

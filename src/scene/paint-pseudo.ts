@@ -61,7 +61,8 @@ const axisScale = (value: string): { x: number; y: number } | null => {
 function hasRingMask(style: CSSStyleDeclaration): boolean {
   const image = style.maskImage || style.getPropertyValue('-webkit-mask-image')
   const layers = splitCss(image || '')
-  const black = /^linear-gradient\(\s*rgb\(0,\s*0,\s*0\)\s+0(?:px|%)?,\s*rgb\(0,\s*0,\s*0\)\s+0(?:px|%)?\s*\)$/
+  const black =
+    /^linear-gradient\(\s*rgb\(0,\s*0,\s*0\)\s+0(?:px|%)?,\s*rgb\(0,\s*0,\s*0\)\s+0(?:px|%)?\s*\)$/
   const equalLayers = (value: string, expected: string) =>
     splitCss(value).length === 2 && splitCss(value).every((part) => part === expected)
   const zeroPositions = (value: string) => {
@@ -73,9 +74,12 @@ function hasRingMask(style: CSSStyleDeclaration): boolean {
     return parts.length === 2 && parts[0] === a && parts[1] === b
   }
   const property = (name: string) => style.getPropertyValue(name).trim()
-  const padding = [style.paddingLeft, style.paddingRight, style.paddingTop, style.paddingBottom].map(
-    (value) => px(value || '0px')
-  )
+  const padding = [
+    style.paddingLeft,
+    style.paddingRight,
+    style.paddingTop,
+    style.paddingBottom,
+  ].map((value) => px(value || '0px'))
   const radii = [
     style.borderTopLeftRadius,
     style.borderTopRightRadius,
@@ -93,13 +97,67 @@ function hasRingMask(style: CSSStyleDeclaration): boolean {
     equalLayers(property('-webkit-mask-repeat') || style.maskRepeat, 'repeat') &&
     zeroPositions(property('-webkit-mask-position') || style.maskPosition) &&
     (!style.maskMode || equalLayers(style.maskMode, 'match-source')) &&
-    [style.borderLeftWidth, style.borderRightWidth, style.borderTopWidth, style.borderBottomWidth]
-      .every((value) => (px(value || '0px') ?? Number.NaN) === 0) &&
+    [
+      style.borderLeftWidth,
+      style.borderRightWidth,
+      style.borderTopWidth,
+      style.borderBottomWidth,
+    ].every((value) => (px(value || '0px') ?? Number.NaN) === 0) &&
     padding[0] !== undefined &&
     padding[0] > 0 &&
     padding.every((value) => value === padding[0]) &&
     radii.every((value) => value === radii[0])
   )
+}
+
+interface EllipticalRadius {
+  x: number
+  y: number
+}
+
+/** Use the equivalent elliptical arcs on browsers that predate Canvas roundRect. */
+function appendRoundRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radii: readonly EllipticalRadius[]
+) {
+  if (typeof context.roundRect === 'function') {
+    context.roundRect(x, y, width, height, [...radii])
+    return
+  }
+  if (typeof context.ellipse !== 'function') throw new Error('Canvas ellipse unavailable')
+  const [tl = { x: 0, y: 0 }, tr = { x: 0, y: 0 }, br = { x: 0, y: 0 }, bl = { x: 0, y: 0 }] = radii
+  const ratio = (extent: number, sum: number) => (sum > 0 ? extent / sum : 1)
+  const factor = Math.min(
+    1,
+    ratio(width, tl.x + tr.x),
+    ratio(width, bl.x + br.x),
+    ratio(height, tl.y + bl.y),
+    ratio(height, tr.y + br.y)
+  )
+  const corners = [tl, tr, br, bl].map((radius) => ({
+    x: radius.x * factor,
+    y: radius.y * factor,
+  }))
+  const [a, b, c, d] = corners
+  if (!a || !b || !c || !d) throw new Error('Canvas radius unavailable')
+  context.moveTo(x + a.x, y)
+  context.lineTo(x + width - b.x, y)
+  if (b.x && b.y) context.ellipse(x + width - b.x, y + b.y, b.x, b.y, 0, -Math.PI / 2, 0)
+  else context.lineTo(x + width, y + b.y)
+  context.lineTo(x + width, y + height - c.y)
+  if (c.x && c.y) context.ellipse(x + width - c.x, y + height - c.y, c.x, c.y, 0, 0, Math.PI / 2)
+  else context.lineTo(x + width - c.x, y + height)
+  context.lineTo(x + d.x, y + height)
+  if (d.x && d.y) context.ellipse(x + d.x, y + height - d.y, d.x, d.y, 0, Math.PI / 2, Math.PI)
+  else context.lineTo(x, y + height - d.y)
+  context.lineTo(x, y + a.y)
+  if (a.x && a.y) context.ellipse(x + a.x, y + a.y, a.x, a.y, 0, Math.PI, (3 * Math.PI) / 2)
+  else context.lineTo(x + a.x, y)
+  context.closePath()
 }
 
 function applyRingMask(
@@ -136,14 +194,14 @@ function applyRingMask(
   context.fillStyle = '#000'
   context.globalCompositeOperation = 'destination-in'
   context.beginPath()
-  context.roundRect(0, 0, width, height, outer)
+  appendRoundRect(context, 0, 0, width, height, outer)
   context.fill()
   const innerWidth = Math.max(0, width - left - right)
   const innerHeight = Math.max(0, height - top - bottom)
   if (innerWidth && innerHeight) {
     context.globalCompositeOperation = 'destination-out'
     context.beginPath()
-    context.roundRect(left, top, innerWidth, innerHeight, inner)
+    appendRoundRect(context, left, top, innerWidth, innerHeight, inner)
     context.fill()
   }
   context.restore()
@@ -269,7 +327,8 @@ export function measurePseudoBox(
   )
     return unsupported('Pseudo-element parent border must resolve to pixels')
   const parentWidth = parentRect.width / scaleX - (parentBorderLeft ?? 0) - (parentBorderRight ?? 0)
-  const parentHeight = parentRect.height / scaleY - (parentBorderTop ?? 0) - (parentBorderBottom ?? 0)
+  const parentHeight =
+    parentRect.height / scaleY - (parentBorderTop ?? 0) - (parentBorderBottom ?? 0)
   if (
     Math.abs(element.clientWidth - parentWidth) > 1 ||
     Math.abs(element.clientHeight - parentHeight) > 1
