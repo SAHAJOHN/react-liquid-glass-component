@@ -1,2 +1,8 @@
 export { LiquidGlass } from './LiquidGlass'
 export type { LiquidGlassProps } from './LiquidGlass'
+export { LiquidGlassScene } from './LiquidGlassScene'
+export type { LiquidGlassSceneProps, LiquidGlassSceneStatus } from './LiquidGlassScene'
+export { GLASS_STUDIO_DEFAULTS, GLASS_STUDIO_RANGES } from './studio-props'
+export type { GlassStudioProps, GlassStudioTint, GlassStudioPosition } from './studio-props'
+export { ScrollEdge } from './ScrollEdge'
+export type { ScrollEdgeProps } from './ScrollEdge'

@@ -1,6 +1,6 @@
 {
   "name": "react-liquid-glass-component",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Liquid glass effect for React using SVG filters with chromatic aberration and frosted blur.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -12,11 +12,17 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./scroll-edge": {
+      "types": "./dist/scroll-edge.d.ts",
+      "import": "./dist/scroll-edge.js",
+      "require": "./dist/scroll-edge.cjs"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "README.md",
+    "THIRD_PARTY_NOTICES.md",
     "LICENSE"
   ],
   "sideEffects": false,
@@ -70,5 +76,8 @@
     "tsup": "^8.3.5",
     "typescript": "^5.6.3",
     "vitest": "^2.1.5"
+  },
+  "dependencies": {
+    "html2canvas": "^1.4.1"
   }
 }
