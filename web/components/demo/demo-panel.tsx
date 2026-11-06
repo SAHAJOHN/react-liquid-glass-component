@@ -182,12 +182,20 @@ const DemoStyled = styled.div`
   }
 `
 
-const usageCode = `<LiquidGlassScene>
-  <main>Background content</main>
-  <LiquidGlass {...settings}>
-    Your content
-  </LiquidGlass>
-</LiquidGlassScene>`
+const usageCode = `'use client'
+
+import { LiquidGlass, LiquidGlassScene } from 'react-liquid-glass-component'
+
+export function GlassExample() {
+  return (
+    <LiquidGlassScene>
+      <main>Background content</main>
+      <LiquidGlass refThickness={20} blurRadius={1}>
+        Your content
+      </LiquidGlass>
+    </LiquidGlassScene>
+  )
+}`
 
 export function DemoPanel() {
   const [settings, setSettings] = useState<GlassStudioProps>(createStudioSettings)
@@ -244,7 +252,8 @@ export function DemoPanel() {
             </h2>
             <p className="demo__hint">
               Copy settings includes every material value. Place your page and glass in the same
-              scene.
+              scene. The upcoming CSS-only release includes styles automatically; npm version 0.4.8
+              still requires styled-components.
             </p>
             <pre className="demo__code">
               <code>{usageCode}</code>

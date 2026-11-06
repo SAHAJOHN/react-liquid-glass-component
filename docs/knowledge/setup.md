@@ -92,7 +92,8 @@ yarn install
 yarn dev
 ```
 
-Opens at `http://localhost:3000`. The demo uses Next.js App Router and styled-components.
+Opens at `http://localhost:3000`. The demo uses Next.js App Router. Its own UI still uses
+`styled-components`, but the library no longer depends on it.
 Interactive pages import the library through `@/components/liquid-glass-client`; do not
 import the package directly from a server page. For a production-style local build use
 the webpack builder:
@@ -141,9 +142,16 @@ npm run lint
 | `dist/index.d.ts` / `dist/index.d.cts`             | Main TypeScript declarations                                   | —    |
 | `dist/scroll-edge.d.ts` / `dist/scroll-edge.d.cts` | ScrollEdge declarations                                        | —    |
 
-Bundles are tree-shaken and minified. Source maps are disabled. `react`, `react-dom`,
-`styled-components`, and `html2canvas` are externalized by tsup; React, React DOM, and
-styled-components remain peer dependencies, while html2canvas is a package dependency.
+Bundles are tree-shaken and minified. Source maps are disabled. `react`, `react-dom`, and
+`html2canvas` are externalized by tsup. React and React DOM remain peer dependencies, while
+html2canvas is a package dependency. The library's component CSS is bundled with the component
+output; `react-liquid-glass-component/styles.css` is also available when a consumer wants to load
+the static rules explicitly. Each standalone `LiquidGlass` and each `ScrollEdge` renders its own
+static `<style>` tag; managed panes inside one `LiquidGlassScene` share the scene's style tag. The
+components still use dynamic `style` attributes, so this import does not suppress those tags or
+satisfy a CSP that blocks inline style attributes. Set `includeStyles={false}` on each standalone
+`LiquidGlass` or `ScrollEdge` when using the external stylesheet. Set it on `LiquidGlassScene` to
+cover the scene and its managed panes.
 
 ---
 

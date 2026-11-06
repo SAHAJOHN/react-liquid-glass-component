@@ -55,7 +55,19 @@ The `/scroll-edge` entry additionally exports `ScrollEdgePosition`, `ScrollEdgeC
 `ScrollEdgePreset`.
 
 In a Next.js App Router application, import these components from a client component or a
-module marked `'use client'`.
+module marked `'use client'`. The library does not require `styled-components`; it forwards
+`className`, `style`, refs, native HTML attributes, and runtime polymorphic `as` values to the
+root element so it can still be wrapped by a consumer's styling system.
+
+The components render their plain CSS in the React tree, which keeps server-rendered markup and
+hydration self-contained. A consumer that manages styles separately can also import
+`react-liquid-glass-component/styles.css` from the package and load it before the component is
+painted. Each standalone `LiquidGlass` and each `ScrollEdge` renders its own static `<style>` tag;
+managed panes inside one `LiquidGlassScene` share the scene's style tag. The external stylesheet
+does not suppress those tags or dynamic `style` attributes. It can help with policies that block
+inline style elements, but a policy that blocks inline style attributes must also permit the
+dynamic attributes used by the components. The demo application keeps `styled-components` for its
+own UI and registry.
 
 ## `LiquidGlass`
 
@@ -69,6 +81,7 @@ These props apply when `LiquidGlass` is outside a `LiquidGlassScene`.
 | Prop                                     | Type                  |        Default | Description                                                          |
 | ---------------------------------------- | --------------------- | -------------: | -------------------------------------------------------------------- |
 | `children`                               | `ReactNode`           |         `null` | Content inside the surface.                                          |
+| `includeStyles`                          | `boolean`             |        `true` | Render the component's embedded static style tag. Set `false` when the package stylesheet is loaded. |
 | `width`, `height`                        | `number \| string`    |       `'auto'` | Numeric values are pixels; strings are CSS sizes.                    |
 | `borderRadius`                           | `number`              |           `20` | Corner radius in pixels.                                             |
 | `borderWidth`                            | `number`              |         `0.07` | Inner border ratio.                                                  |
@@ -147,6 +160,7 @@ and canvas content from its children. Consumers do not create a canvas or add ma
 | `presentation`                | `'scene' \| 'glass-only'` |              `'scene'` | Canvas coverage; `glass-only` retains native content outside the pane. |
 | `onStatusChange`              | `(state) => void` |                       — | Receives `ready`, `pending`, or `fallback` with reasons. |
 | `canvasContainer`             | `HTMLElement \| null` | — | In `glass-only`, mounts the canvas inside a fixed container that contains every managed pane. |
+| `includeStyles`               | `boolean`             |                  `true` | Render the scene's embedded static style tag. Set `false` when the package stylesheet is loaded. |
 | `children`, `ref`, HTML attrs | React/HTML types  |                       — | Normal React content and root attributes.             |
 
 ```tsx
@@ -263,6 +277,7 @@ export function ScrollExample() {
 | `shadow`                                  | `boolean`                        |                 `true` | Transparent content fade for parent target.                                                  |
 | `blur`                                    | `boolean`                        |                `false` | Gradual backdrop blur layers.                                                                |
 | `disabled`                                | `boolean`                        |                `false` | Disable edge effects.                                                                        |
+| `includeStyles`                           | `boolean`                        |                 `true` | Render the component's embedded static style tag. Set `false` when the package stylesheet is loaded. |
 | `shadowSize`                              | `number \| string`               |                   `24` | Fade length.                                                                                 |
 | `shadowColor`                             | `string`                         |      `rgba(0,0,0,.55)` | Deprecated for parent target; used by page overlays.                                         |
 | `blurStrength`                            | `number`                         |                    `1` | Blur multiplier.                                                                             |

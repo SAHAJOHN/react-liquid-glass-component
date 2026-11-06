@@ -13,7 +13,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: "React Liquid Glass Component",
   description:
-    "Frosted glass effect for React — SVG distortion, chromatic aberration, blur.",
+    "Explore React glass surfaces, WebGL refraction, live controls, and scroll edge effects.",
 };
 
 export default function RootLayout({

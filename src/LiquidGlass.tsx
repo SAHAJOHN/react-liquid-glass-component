@@ -9,8 +9,9 @@ import {
   useMemo,
   type CSSProperties,
   type HTMLAttributes,
+  type ElementType,
 } from 'react'
-import { LiquidGlassStyled } from './styles'
+import { GlassStyles } from './styles'
 import { useWebGLBackdrop } from './use-webgl-backdrop'
 import { LiquidGlassSceneContext } from './scene/context'
 import { createDisplacementMapSvg } from './displacement-map'
@@ -23,6 +24,8 @@ import {
 
 export interface LiquidGlassProps
   extends HTMLAttributes<HTMLDivElement>, Partial<GlassStudioProps> {
+  /** Render built-in styles. Disable when importing the package stylesheet separately. Default true. */
+  includeStyles?: boolean
   /** Optional Studio size aliases. Omit to keep CSS/width/height sizing. */
   shapeWidth?: number
   shapeHeight?: number
@@ -72,6 +75,8 @@ export interface LiquidGlassProps
 
 const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forwardedRef) => {
   const {
+    as: Root = 'div',
+    includeStyles = true,
     children = null,
     className = '',
     style = {},
@@ -99,7 +104,7 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
     yChannel = 'G',
     mixBlendMode = 'difference',
     ...rest
-  } = props
+  } = props as LiquidGlassProps & { as?: ElementType }
   const tintR = props.tint?.r
   const tintG = props.tint?.g
   const tintB = props.tint?.b
@@ -118,16 +123,13 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
         refFactor: props.refFactor ?? GLASS_STUDIO_DEFAULTS.refFactor,
         refDispersion: props.refDispersion ?? GLASS_STUDIO_DEFAULTS.refDispersion,
         refFresnelRange: props.refFresnelRange ?? GLASS_STUDIO_DEFAULTS.refFresnelRange,
-        refFresnelHardness:
-          props.refFresnelHardness ?? GLASS_STUDIO_DEFAULTS.refFresnelHardness,
-        refFresnelFactor:
-          props.refFresnelFactor ?? GLASS_STUDIO_DEFAULTS.refFresnelFactor,
+        refFresnelHardness: props.refFresnelHardness ?? GLASS_STUDIO_DEFAULTS.refFresnelHardness,
+        refFresnelFactor: props.refFresnelFactor ?? GLASS_STUDIO_DEFAULTS.refFresnelFactor,
         glareRange: props.glareRange ?? GLASS_STUDIO_DEFAULTS.glareRange,
         glareHardness: props.glareHardness ?? GLASS_STUDIO_DEFAULTS.glareHardness,
         glareFactor: props.glareFactor ?? GLASS_STUDIO_DEFAULTS.glareFactor,
         glareConvergence: props.glareConvergence ?? GLASS_STUDIO_DEFAULTS.glareConvergence,
-        glareOppositeFactor:
-          props.glareOppositeFactor ?? GLASS_STUDIO_DEFAULTS.glareOppositeFactor,
+        glareOppositeFactor: props.glareOppositeFactor ?? GLASS_STUDIO_DEFAULTS.glareOppositeFactor,
         glareAngle: props.glareAngle ?? GLASS_STUDIO_DEFAULTS.glareAngle,
         blurRadius: props.blurRadius ?? displace,
         blurEdge: props.blurEdge ?? GLASS_STUDIO_DEFAULTS.blurEdge,
@@ -398,9 +400,9 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
   } as CSSProperties
 
   return (
-    <LiquidGlassStyled
+    <Root
       ref={setRef}
-      className={`liquid-glass ${svgSupported ? 'liquid-glass--svg' : 'liquid-glass--fallback'} ${webglReady ? 'liquid-glass--webgl' : ''} ${scene ? 'liquid-glass--managed' : ''} ${className}`}
+      className={`liquid-glass-root liquid-glass ${svgSupported ? 'liquid-glass--svg' : 'liquid-glass--fallback'} ${webglReady ? 'liquid-glass--webgl' : ''} ${scene ? 'liquid-glass--managed' : ''} ${className}`}
       style={containerStyle}
       {...rest}
     >
@@ -488,7 +490,8 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
         </>
       )}
       <div className="liquid-glass__content">{children}</div>
-    </LiquidGlassStyled>
+      {!scene && includeStyles && <GlassStyles />}
+    </Root>
   )
 })
 LiquidGlass.displayName = 'LiquidGlass'

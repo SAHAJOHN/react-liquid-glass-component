@@ -10,8 +10,8 @@
 ## Library package
 
 - Entrypoint: `src/index.ts` exports `LiquidGlass`, `LiquidGlassScene`, Studio controls, and `ScrollEdge` with their public types.
-- Styles live in `src/styles.ts` (single styled-component).
-- Peer deps: `react >=18`, `react-dom >=18`, `styled-components >=6`.
+- Styles live in `src/styles/*.css`; components render them automatically, and `react-liquid-glass-component/styles.css` is available for explicit imports.
+- Peer deps: `react >=18`, `react-dom >=18`.
 - `width`/`height` default to `'auto'`; when `'auto'` no inline size is set, so sizing is controlled by CSS / `className` / `style`.
 
 ## Root commands (npm)

@@ -5,6 +5,7 @@ import { LiquidGlass } from '../LiquidGlass'
 import * as capture from '../backdrop-capture'
 import * as renderer from '../webgl-refraction'
 import { LiquidGlassSceneContext } from '../scene/context'
+import { SceneStyles } from '../styles'
 
 describe('LiquidGlass', () => {
   afterEach(() => {
@@ -232,6 +233,7 @@ describe('LiquidGlass', () => {
         <LiquidGlassSceneContext.Provider value={controller}>
           <LiquidGlass tint={{ r: 22, g: 35, b: 43, a: 0.75 }} />
         </LiquidGlassSceneContext.Provider>
+        <SceneStyles />
       </div>
     )
     const scene = container.firstChild as HTMLElement

@@ -8,10 +8,11 @@ import React, {
   useRef,
   useState,
   type CSSProperties,
+  type ElementType,
   type PropsWithChildren,
   type UIEventHandler,
 } from 'react'
-import { styled } from 'styled-components'
+import { ScrollEdgeStyles } from './styles'
 
 export type ScrollEdgePosition = 'top' | 'bottom' | 'left' | 'right'
 
@@ -33,6 +34,8 @@ export type ScrollEdgePreset =
   | 'page-footer'
 
 export interface ScrollEdgeProps extends React.HTMLAttributes<HTMLDivElement> {
+  /** Render built-in styles. Disable when importing the package stylesheet separately. Default true. */
+  includeStyles?: boolean
   edges?: ScrollEdgePosition[]
   shadow?: boolean
   blur?: boolean
@@ -154,64 +157,11 @@ const useResponsiveSize = (
   return responsive ? val : size
 }
 
-const ScrollEdgeStyled = styled.div`
-  position: relative;
-  overflow: hidden;
-
-  .scroll-edge__mask-vertical,
-  .scroll-edge__mask-horizontal {
-    width: 100%;
-    height: 100%;
-  }
-
-  .scroll-edge__scrollable {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-
-    &::-webkit-scrollbar {
-      width: 8px;
-      height: 8px;
-    }
-
-    &::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 4px;
-    }
-  }
-
-  .scroll-edge__overlay {
-    position: absolute;
-    pointer-events: none;
-    isolation: isolate;
-    transition: opacity 0.3s ease-out;
-  }
-
-  .scroll-edge__overlay--hoverable {
-    pointer-events: auto;
-  }
-
-  .scroll-edge__shadow {
-    position: absolute;
-    inset: 0;
-  }
-
-  .scroll-edge__blur-layer {
-    position: absolute;
-    inset: 0;
-  }
-`
-
 const ScrollEdge = forwardRef<HTMLDivElement, PropsWithChildren<ScrollEdgeProps>>(
-  (
-    {
+  (rawProps, forwardedRef) => {
+    const {
+      as: Root = 'div',
+      includeStyles = true,
       children,
       className = '',
       style,
@@ -242,9 +192,7 @@ const ScrollEdge = forwardRef<HTMLDivElement, PropsWithChildren<ScrollEdgeProps>
       target,
       onAnimationComplete,
       ...rest
-    },
-    forwardedRef
-  ) => {
+    } = rawProps as PropsWithChildren<ScrollEdgeProps> & { as?: ElementType }
     const internalRef = useRef<HTMLDivElement | null>(null)
     const scrollableRef = useRef<HTMLDivElement | null>(null)
     const [isHovered, setIsHovered] = useState(false)
@@ -493,12 +441,7 @@ const ScrollEdge = forwardRef<HTMLDivElement, PropsWithChildren<ScrollEdgeProps>
     }
 
     return (
-      <ScrollEdgeStyled
-        ref={setRefs}
-        className={`scroll-edge ${className}`}
-        style={style}
-        {...rest}
-      >
+      <Root ref={setRefs} className={`scroll-edge ${className}`} style={style} {...rest}>
         <div
           className="scroll-edge__mask-vertical"
           style={{ maskImage: verticalMask, WebkitMaskImage: verticalMask }}
@@ -553,7 +496,8 @@ const ScrollEdge = forwardRef<HTMLDivElement, PropsWithChildren<ScrollEdgeProps>
               </React.Fragment>
             )
           })}
-      </ScrollEdgeStyled>
+        {includeStyles && <ScrollEdgeStyles />}
+      </Root>
     )
   }
 )

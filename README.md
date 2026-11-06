@@ -1,66 +1,68 @@
 # React Liquid Glass
 
-React components for refracted glass surfaces, managed WebGL scenes, and scroll edge effects.
+React components for glass surfaces, WebGL scenes, and scroll edge effects.
 
 [![npm](https://img.shields.io/npm/v/react-liquid-glass-component)](https://www.npmjs.com/package/react-liquid-glass-component)
 [![license](https://img.shields.io/npm/l/react-liquid-glass-component)](LICENSE)
 
-## Demo
+[Showcase](https://react-liquid-glass-component.vercel.app/) · [Interactive demo](https://react-liquid-glass-component.vercel.app/demo) · [ScrollEdge demo](https://react-liquid-glass-component.vercel.app/scroll-edge) · [API reference](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/api.md)
 
-- [Showcase](https://react-liquid-glass-component.vercel.app/)
-- [Live demo](https://react-liquid-glass-component.vercel.app/demo)
-- [ScrollEdge](https://react-liquid-glass-component.vercel.app/scroll-edge)
+![Glass surfaces in the showcase](https://raw.githubusercontent.com/SAHAJOHN/react-liquid-glass-component/main/web/public/images/showcase-current.png)
 
-![Showcase](https://raw.githubusercontent.com/SAHAJOHN/react-liquid-glass-component/main/web/public/images/showcase-current.png)
+![Glass settings in the interactive demo](https://raw.githubusercontent.com/SAHAJOHN/react-liquid-glass-component/main/web/public/images/demo-current.png)
 
-![Live demo](https://raw.githubusercontent.com/SAHAJOHN/react-liquid-glass-component/main/web/public/images/demo-current.png)
+![ScrollEdge examples](https://raw.githubusercontent.com/SAHAJOHN/react-liquid-glass-component/main/web/public/images/scroll-edge-current.png)
 
-![ScrollEdge](https://raw.githubusercontent.com/SAHAJOHN/react-liquid-glass-component/main/web/public/images/scroll-edge-current.png)
-
-Sites using the package include [KA Technology](https://dev.kacorptech.com/) and [Code Terminal](https://codeterminal.io/).
+Sites using the library include [KA Technology](https://dev.kacorptech.com/) and [Code Terminal](https://codeterminal.io/).
 
 ## Install
 
+> The CSS changes in this README are available in the current source but have not been published yet. npm version `0.4.8` still requires `styled-components`.
+
+After the next release, install the package with React 18 or newer and React DOM 18 or newer:
+
 ```bash
-npm install react-liquid-glass-component styled-components
+npm install react-liquid-glass-component
 ```
 
-The host app must provide React 18 or newer, React DOM 18 or newer, and styled-components 6 or newer.
-In the Next.js App Router, import the components from a client component marked `'use client'`.
+The library supplies its own CSS. No stylesheet import or `styled-components` dependency is required for the default setup. In Next.js App Router, use the components from a client component.
 
 ## Quick start
 
-Use `LiquidGlass` by itself for a single surface:
+Use `LiquidGlass` on its own for a single surface:
 
 ```tsx
+'use client'
+
 import { LiquidGlass } from 'react-liquid-glass-component'
 
 export function Card() {
   return (
-    <LiquidGlass className="card" borderRadius={24} blur={12}>
-      <h2>Hello</h2>
-      <p>Content stays as normal React.</p>
+    <LiquidGlass width={320} borderRadius={24}>
+      <p>Hello through glass.</p>
     </LiquidGlass>
   )
 }
 ```
 
-`width` and `height` default to `auto`, so CSS, `className`, or `style` controls the size. Native HTML attributes and a ref to the root element are forwarded.
+`width` and `height` default to `auto`. Use props, `className`, or `style` to size the surface. Children remain regular React elements.
 
-## Managed scenes
+## Refract page content
 
-`LiquidGlassScene` owns one canvas for the page. Put the background content and every managed glass pane inside it. The component reads supported text, images, SVG, video, canvas, colors, gradients, borders, and layout changes automatically.
+Wrap the content and its glass surfaces in `LiquidGlassScene`. The scene builds a WebGL view of supported content and updates it as the page changes.
 
 ```tsx
+'use client'
+
 import { LiquidGlass, LiquidGlassScene } from 'react-liquid-glass-component'
 
 export function Page() {
   return (
     <LiquidGlassScene background="#142334">
       <main>
-        <h1>Managed glass</h1>
-        <p>The scene keeps the canvas and page content in sync.</p>
-        <LiquidGlass refThickness={24} refFactor={1.4}>
+        <h1>Your page</h1>
+        <p>Content behind the glass can be refracted.</p>
+        <LiquidGlass width={320} refThickness={24} refFactor={1.4}>
           <button type="button">Open</button>
         </LiquidGlass>
       </main>
@@ -69,30 +71,13 @@ export function Page() {
 }
 ```
 
-| Prop             | Default                    | Purpose                                                              |
-| ---------------- | -------------------------- | -------------------------------------------------------------------- |
-| `background`     | page or wrapper background | Base color behind the scene.                                         |
-| `maxPixelRatio`  | `2`                        | Backing resolution cap.                                              |
-| `presentation`   | `scene`                    | Show the whole scene or use `glass-only` to limit it to a pane.      |
-| `onStatusChange` | —                          | Receives `ready`, `pending`, or `fallback`; the latter include reasons. |
-| `canvasContainer` | —                    | Optional fixed container for the composed canvas in `glass-only` mode. |
+Use `presentation="glass-only"` to keep the page visible outside managed panes. It requires `shapeRoundness={2}` and `shadowFactor={0}`. Each visible pane must fit inside the scene and viewport. For multiple separate panes, the browser also needs CSS `clip-path: path(...)` support.
 
-For a fixed navigation bar, `presentation="glass-only"` keeps the surrounding page native and shows the canvas inside the managed panes:
+For fixed navigation, pass the element containing the glass to `canvasContainer`. This keeps the scene canvas with the native controls during scrolling:
 
 ```tsx
-<LiquidGlassScene presentation="glass-only">
-  <main>Page content</main>
-  <LiquidGlass refThickness={20} shapeRadius={100} shapeRoundness={2} shadowFactor={0}>
-    <nav aria-label="Primary">Navigation</nav>
-  </LiquidGlass>
-</LiquidGlassScene>
-```
+'use client'
 
-For a fixed navigation bar on iOS, pass the fixed element that contains every managed pane.
-The scene mounts its canvas inside that element so the canvas and native
-controls stay together during elastic scrolling:
-
-```tsx
 import { useState } from 'react'
 import { LiquidGlass, LiquidGlassScene } from 'react-liquid-glass-component'
 
@@ -102,7 +87,7 @@ export function FixedNavigation() {
   return (
     <LiquidGlassScene presentation="glass-only" canvasContainer={navigation}>
       <main>Page content</main>
-      <nav ref={setNavigation} style={{ position: 'fixed' }}>
+      <nav ref={setNavigation} style={{ position: 'fixed', bottom: 24 }}>
         <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0}>
           <button type="button">Open</button>
         </LiquidGlass>
@@ -112,79 +97,59 @@ export function FixedNavigation() {
 }
 ```
 
-The container must be inside the scene, use `position: fixed`, and have no scale. Its
-ancestors must not use `transform`, `perspective`, or `filter`; every
-registered pane must be inside the container. Unsupported geometry reports `fallback` and
-keeps native HTML visible. Omitting `canvasContainer` keeps the default canvas placement.
-Passing `null` waits for the fixed element to mount before starting the scene.
+The container must be inside the scene, use `position: fixed`, and contain every managed pane. It must not be scaled, and its ancestors must not use transforms, perspective, or filters. Passing `null` waits for the element to mount.
 
-Every visible pane must fit inside the scene and viewport. Glass-only mode requires `shapeRoundness={2}`, `shadowFactor={0}` and CSS `clip-path` support; separate panes also require CSS `clip-path: path(...)`. During elastic scrolling, the scene retains 3D only while it can validate that the panes and their fixed container move together.
+Scene rendering supports common text, images, SVG, video, canvas, backgrounds, borders, and layout changes. Some CSS and DOM combinations cannot be captured safely. In that case the scene keeps the original HTML visible and reports `fallback` through `onStatusChange`; the native fallback does not refract the background. Cross-origin media needs CORS permission. See [scene support and limitations](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/api.md#liquidglassscene) for details.
 
-In glass-only mode, the scene can briefly retain its last rendered frame while images or SVGs load. `onStatusChange` reports `pending` during this interval; the previous backdrop can remain visible until the new frame is ready. If loading takes too long or the scene encounters unsupported content, it reports `fallback` and shows the original HTML.
+### Main scene options
 
-During fallback, managed panes use native backdrop blur and approximate the Studio `tint` and `blurRadius` settings. Native fallback does not refract the background.
+| Prop | Default | Purpose |
+| --- | --- | --- |
+| `background` | Page or wrapper background | Base color behind the scene. |
+| `maxPixelRatio` | `2` | Limits canvas backing resolution. |
+| `presentation` | `'scene'` | Choose `'scene'` or `'glass-only'`. |
+| `canvasContainer` | `undefined` | Fixed container for a glass-only canvas. |
+| `onStatusChange` | `undefined` | Receives `ready`, `pending`, or `fallback`. |
+| `includeStyles` | `true` | Include the scene's CSS in rendered markup. |
 
-When the scene cannot compile part of the page, the original HTML remains visible and the scene reports the reason. The scene supports a single darkening `brightness()` filter from `0` through `1`, `blur(0px)` as an identity filter, pure 2D translations, selected backdrop blur layers, and some opacity groups. An empty layer with a single alpha `linear-gradient()` mask and a uniform-radius card can use `backdrop-filter: blur(...)`, optionally followed by `saturate(...)` and `brightness(...)`, when their geometry and ancestors are safe. An opacity group can fade one shadowless Studio pane or one supported backdrop when it is the group's first paint and the scene background is opaque. Arbitrary masks, unsupported mask layers, SVG `url(...)` filters, other filters, regular brightness filters above `1`, nested opacity, other backdrop filters inside opacity groups, rotations, deeply nested clipping, perspective, iframes, Shadow DOM, and active native editing controls remain unsupported. Portals outside the scene are not captured, and text selection is not mirrored into the canvas. Cross-origin media needs CORS permission.
+## Glass settings
 
-The scene can also composite a bounded static subtree with either one vertical or horizontal black-to-transparent linear gradient mask, or exactly two orthogonal alpha-only linear gradients intersected with `mask-composite: intersect` and `-webkit-mask-composite: source-in`. Chromium may serialize the prefixed value as `intersect`; the standard and prefixed lists must still match. Pixel, percentage and `calc(100% - …px)` stops are supported. The combined mask is bounded to 4096 pixels per side and 2 million pixels total. Nested opacity, live media, unsupported clipping and other mask layers can still trigger fallback.
-
-Some solid boxes with a rounded bottom border use a self-contained SVG image rendered by the browser. Rasterization and subpixel positioning can still differ from native HTML. The scene verifies that the image renders before using it; if the browser or Content Security Policy blocks it, or the box geometry is unsupported, the scene retains its fallback.
-
-For an animated 2D canvas inside an opacity group, declare its context with `<canvas data-liquid-glass-canvas="2d" />`. Only use this attribute for a canvas that uses a 2D context. Unmarked canvases inside opacity groups remain native because the scene cannot safely infer their context type.
-
-To reduce uploads for a large 2D canvas in glass-only mode, its owner can set
-`data-liquid-glass-canvas-format="srgb8"` after creating its default sRGB, 8-bit 2D context. Keep
-`data-liquid-glass-canvas="2d"` on the element. This declaration asserts that the context is
-already initialized and uses that format. The scene may upload only the sampled area when its
-geometry is safe; other canvases continue using the full source.
-
-In glass-only mode, supported backdrop layers can extend beyond the viewport. Blur samples at the viewport edge mirror the visible snapshot, so the result near that edge can differ from a browser that samples content outside the viewport. Unsupported geometry and effects can still cause a fallback.
-
-## Glass options
-
-Inside a scene, `LiquidGlass` accepts these material options. Omitted values use the defaults shown.
-
-| Prop               | Default | Prop                  | Default |
-| ------------------ | ------: | --------------------- | ------: |
-| `refThickness`     |    `20` | `refDistance`         |  `0.05` |
-| `refFactor`        |   `1.4` | `refDispersion`       |     `7` |
-| `refFresnelRange`  |    `30` | `refFresnelHardness`  |    `20` |
-| `refFresnelFactor` |    `20` | `glareRange`          |    `30` |
-| `glareHardness`    |    `20` | `glareFactor`         |    `90` |
-| `glareConvergence` |    `50` | `glareOppositeFactor` |    `80` |
-| `glareAngle`       |   `-45` | `blurRadius`          |     `1` |
-| `blurEdge`         |  `true` | `shadowExpand`        |    `25` |
-| `shadowFactor`     |    `15` | `shapeRadius`         |    `80` |
-| `shapeRoundness`   |     `5` | `convexity`           |     `0` |
-
-`tint` defaults to `{ r: 255, g: 255, b: 255, a: 0 }` and `shadowPosition` to `{ x: 0, y: -10 }`. `shapeRadius` is a percentage of half the shorter side. `shapeWidth` and `shapeHeight` are pixel aliases; explicit `width` and `height` take precedence. `convexity` is a flat-to-rounded body lens from `0` to `1`; when it is omitted, `magnification` defaults to `1`.
-
-`GLASS_STUDIO_DEFAULTS` and `GLASS_STUDIO_RANGES` are exported for controls and presets:
+Inside a scene, use material props to adjust the surface. A few useful starting points:
 
 ```tsx
-import { GLASS_STUDIO_DEFAULTS, LiquidGlass, LiquidGlassScene } from 'react-liquid-glass-component'
+'use client'
 
-export function Preset() {
+import { LiquidGlass, LiquidGlassScene } from 'react-liquid-glass-component'
+
+export function MaterialExample() {
   return (
     <LiquidGlassScene>
-      <LiquidGlass {...GLASS_STUDIO_DEFAULTS} refThickness={28}>
-        Preset content
+      <LiquidGlass
+        refThickness={24}
+        refFactor={1.4}
+        refDispersion={7}
+        blurRadius={2}
+        tint={{ r: 255, g: 255, b: 255, a: 0.08 }}
+      >
+        Content
       </LiquidGlass>
     </LiquidGlassScene>
   )
 }
 ```
 
+`refThickness` controls the refracting edge, `refFactor` changes how it bends the background, and `refDispersion` adds color separation. `blurRadius` and `tint` adjust the material. `GLASS_STUDIO_DEFAULTS` and `GLASS_STUDIO_RANGES` are exported for building controls. See the [full list of props and defaults](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/api.md#liquidglass).
+
 ## ScrollEdge
 
-Import `ScrollEdge` from the root package or the tree-shaken subpath. It renders an outer wrapper and an inner `.scroll-edge__scrollable` viewport.
-
-### Fade content into the background
+Use `ScrollEdge` to fade or blur the edges of a scrollable area. The subpath keeps the import focused on this component:
 
 ```tsx
+'use client'
+
 import { ScrollEdge } from 'react-liquid-glass-component/scroll-edge'
 
-export function FadeList() {
+export function List() {
   return (
     <ScrollEdge edges={['top', 'bottom']} shadowSize={24} style={{ height: 240 }}>
       {Array.from({ length: 20 }, (_, index) => (
@@ -195,49 +160,39 @@ export function FadeList() {
 }
 ```
 
-Parent mode uses transparent CSS masks. It fades content into whatever is behind the viewport and does not paint a shadow color. Vertical and horizontal masks can run together.
+The default fade uses transparent masks, so it blends with the background. To use blur without the fade, pass `shadow={false}` and `blur`. `onScroll` receives events from the inner viewport; the forwarded ref points to the outer wrapper. See [ScrollEdge options](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/api.md#scrolledge).
 
-### Blur without the fade
+## CSS
+
+By default, each standalone `LiquidGlass` and `ScrollEdge` renders its own static `<style>` tag. Managed glass panes inside one `LiquidGlassScene` share the scene's tag. The CSS is present in server-rendered HTML, and no import is needed.
+
+To load the rules once yourself, import the stylesheet and disable embedded styles on each independent component:
 
 ```tsx
-import { ScrollEdge } from 'react-liquid-glass-component/scroll-edge'
+'use client'
 
-export function BlurList() {
+import 'react-liquid-glass-component/styles.css'
+import { LiquidGlass, LiquidGlassScene, ScrollEdge } from 'react-liquid-glass-component'
+
+export function Page() {
   return (
-    <ScrollEdge shadow={false} blur divCount={4} style={{ height: 240 }}>
-      {Array.from({ length: 20 }, (_, index) => (
-        <p key={index}>Item {index + 1}</p>
-      ))}
-    </ScrollEdge>
+    <>
+      <LiquidGlassScene includeStyles={false}>
+        <LiquidGlass>Managed pane</LiquidGlass>
+      </LiquidGlassScene>
+      <ScrollEdge includeStyles={false} style={{ height: 240 }}>
+        Scrollable content
+      </ScrollEdge>
+    </>
   )
 }
 ```
 
-| Prop           | Default             | Purpose                                              |
-| -------------- | ------------------- | ---------------------------------------------------- |
-| `edges`        | `['top', 'bottom']` | `top`, `bottom`, `left`, or `right`.                 |
-| `shadow`       | `true`              | Enables the transparent content fade in parent mode. |
-| `blur`         | `false`             | Adds gradual backdrop blur layers.                   |
-| `shadowSize`   | `24`                | Fade length.                                         |
-| `edgeSize`     | `'24px'`            | Blur overlay size.                                   |
-| `blurStrength` | `1`                 | Blur multiplier.                                     |
-| `divCount`     | `8`                 | Number of blur layers.                               |
-| `exponential`  | `true`              | Use exponential blur growth.                         |
-| `curve`        | `'bezier'`          | Blur curve.                                          |
-| `disabled`     | `false`             | Disable all edge effects.                            |
-| `target`       | `'parent'`          | Use `'page'` for compatibility overlay mode.         |
-| `responsive`   | `false`             | Select `edgeSize` from responsive size props.        |
-| `animated`     | `false`             | Use `'scroll'` to observe visibility.                |
+`includeStyles={false}` on a scene also covers its managed glass panes. Set it on each standalone `LiquidGlass` and `ScrollEdge` that uses the external stylesheet. The components still use dynamic `style` attributes, so importing the CSS alone does not satisfy a CSP that blocks those attributes.
 
-`shadowColor` is deprecated in parent mode. It remains available for `target="page"`, which keeps fixed colored overlay behavior. `onScroll` receives events from the inner scrolling element; `ref` points to the outer wrapper.
+## Browser behavior
 
-The `react-liquid-glass-component/scroll-edge` entry also exports `ScrollEdgePosition`, `ScrollEdgeCurve`, and `ScrollEdgePreset`.
-
-For the complete props and defaults, see the [API reference](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/api.md).
-
-## Browser notes
-
-Standalone glass uses SVG and WebKit fallbacks. Managed scenes use one WebGL canvas. If capture or GPU rendering fails, the original HTML remains available. Animated media and fast scrolling can require more work from mobile browsers.
+Managed scenes use WebGL. Standalone surfaces use browser-specific SVG or WebKit capture paths and can fall back to native blur. Performance depends on the page, device, and effects behind the glass; no frame rate is guaranteed.
 
 ## Local development
 
@@ -253,18 +208,7 @@ yarn install
 yarn dev
 ```
 
-The demo uses the published package version in `web/package.json`. To test local library changes, temporarily switch it to `file:..`, run the root build, and sync `dist/` into `web/node_modules/react-liquid-glass-component/dist/`.
-See the [setup guide](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/setup.md) for the full workflow.
-
-For a production-style local build:
-
-```bash
-LIQUID_GLASS_DIST_DIR=.next-preview-local yarn build --webpack
-```
-
-## Exports
-
-The root entry exports `LiquidGlass`, `LiquidGlassScene`, `GLASS_STUDIO_DEFAULTS`, `GLASS_STUDIO_RANGES`, and `ScrollEdge` with their public types. The `react-liquid-glass-component/scroll-edge` entry exports `ScrollEdge` and its union types.
+The demo uses the published package pinned in `web/package.json` and keeps `styled-components` for its own UI. To test library changes before publishing, use a temporary local package build. See the [setup guide](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/setup.md).
 
 ## License
 

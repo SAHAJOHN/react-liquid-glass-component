@@ -149,9 +149,18 @@ const CanvasShowcaseStyled = styled(LiquidGlassScene)`
 
   .canvas-showcase__install > .liquid-glass__content {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
+  }
+
+  .canvas-showcase__install-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
   }
 
   .canvas-showcase__install {
@@ -169,8 +178,23 @@ const CanvasShowcaseStyled = styled(LiquidGlassScene)`
     overflow-wrap: anywhere;
   }
 
+  .canvas-showcase__package {
+    display: inline-block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    vertical-align: bottom;
+  }
+
   .canvas-showcase__install .canvas-showcase__button {
     flex-shrink: 0;
+  }
+
+  .canvas-showcase__install-note {
+    flex: 1 1 100%;
+    margin: 8px 0 0;
+    color: ${colors.foregroundMuted};
+    font-size: ${fontSize.sm};
+    line-height: 1.5;
   }
 
   .canvas-showcase__scroll {
@@ -302,6 +326,16 @@ const CanvasShowcaseStyled = styled(LiquidGlassScene)`
       padding-top: 56px;
     }
   }
+
+  @media (max-width: 420px) {
+    .canvas-showcase__install-row {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+    .canvas-showcase__install .canvas-showcase__button {
+      align-self: flex-end;
+    }
+  }
 `
 
 const variants = [
@@ -346,7 +380,8 @@ const cards = [
   },
 ]
 
-const installCommand = 'npm install react-liquid-glass-component styled-components'
+const packageName = 'react-liquid-glass-component'
+const installCommand = `npm install ${packageName}`
 
 function CopyControl({ text, label }: { text: string; label: string }) {
   const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -455,7 +490,7 @@ export default function CanvasShowcase() {
               Control refraction, Fresnel reflection, glare and blur.
             </p>
             <code className="canvas-showcase__example">
-              {'{ LiquidGlass } from react-liquid-glass-component'}
+              {"import { LiquidGlass } from 'react-liquid-glass-component'"}
             </code>
           </LiquidGlass>
 
@@ -482,8 +517,16 @@ export default function CanvasShowcase() {
             className="canvas-showcase__glass canvas-showcase__install"
             aria-label="Install package"
           >
-            <code className="canvas-showcase__command">{installCommand}</code>
-            <CopyControl text={installCommand} label="install command" />
+            <div className="canvas-showcase__install-row">
+              <code className="canvas-showcase__command">
+                {'npm install '}<span className="canvas-showcase__package">{packageName}</span>
+              </code>
+              <CopyControl text={installCommand} label="install command" />
+            </div>
+            <p className="canvas-showcase__install-note">
+              The current npm version, 0.4.8, also needs styled-components. The next release
+              includes CSS automatically and supports an optional shared stylesheet.
+            </p>
           </LiquidGlass>
 
           <section className="canvas-showcase__scroll" aria-labelledby="scroll-content-heading">

@@ -57,7 +57,7 @@ import { colors, fonts, fontWeight, fontSize, borderRadius, sectionPadding, sect
 
 ### LiquidGlass import
 
-The `react-liquid-glass-component` package uses styled-components, so it must stay on the client side in the Next.js App Router. Do not import it directly from the npm package in server pages. Use the re-export:
+The `react-liquid-glass-component` components use React hooks and browser APIs, so keep them on the client side in the Next.js App Router. Do not import them directly from the npm package in server pages. Use the re-export:
 
 ```ts
 import { LiquidGlass, type LiquidGlassProps } from "@/components/liquid-glass-client";

@@ -1,36 +1,27 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Liquid Glass demo
 
-## Getting Started
+This Next.js App Router site contains the [Showcase](https://react-liquid-glass-component.vercel.app/), [Demo](https://react-liquid-glass-component.vercel.app/demo), and [ScrollEdge](https://react-liquid-glass-component.vercel.app/scroll-edge) pages.
 
-First, run the development server:
+## Run locally
+
+From `web/`:
 
 ```bash
-npm run dev
-# or
+yarn install
 yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). For a production-style check:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+yarn build --webpack
+yarn start
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The site uses Plus Jakarta Sans and `styled-components` for its own UI. Keep its styled-components registry even when testing the library's plain CSS implementation.
 
-## Learn More
+## Test local library changes
 
-To learn more about Next.js, take a look at the following resources:
+The demo normally uses the published version pinned in `package.json`. The source migration that removes the library's `styled-components` peer is not yet in npm `0.4.8`. To test it before release, build the package from the repository root and use a temporary local package installation in the demo. Restore the published dependency and `yarn.lock` before deploying.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Import library components through `components/liquid-glass-client.tsx` so they stay behind a client boundary. See the [package README](../README.md) for examples and the [setup guide](../docs/knowledge/setup.md) for the local workflow.

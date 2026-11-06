@@ -1,6 +1,13 @@
-import { forwardRef, useCallback, useMemo, useRef, type HTMLAttributes } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useMemo,
+  useRef,
+  type ElementType,
+  type HTMLAttributes,
+} from 'react'
 import { createPortal } from 'react-dom'
-import { styled } from 'styled-components'
+import { SceneStyles } from './styles'
 import { LiquidGlassSceneContext, type SceneController } from './scene/context'
 import type { GlassOptions } from './scene/types'
 import { useScene } from './scene/use-scene'
@@ -11,6 +18,8 @@ export type LiquidGlassSceneStatus =
   | { status: 'fallback'; reasons: readonly string[] }
 
 export interface LiquidGlassSceneProps extends HTMLAttributes<HTMLDivElement> {
+  /** Render built-in styles. Disable when importing the package stylesheet separately. Default true. */
+  includeStyles?: boolean
   /** Opaque base behind the scene. Defaults to the wrapper or page background. */
   background?: string
   /** Maximum backing resolution; also limited by the mobile pixel budget. Default 2. */
@@ -23,38 +32,13 @@ export interface LiquidGlassSceneProps extends HTMLAttributes<HTMLDivElement> {
   onStatusChange?: (state: LiquidGlassSceneStatus) => void
 }
 
-const SceneStyled = styled.div.withConfig({ componentId: 'liquid-glass-scene-root' })`
-  position: relative;
-  isolation: isolate;
-  min-height: 100vh;
-
-  > .liquid-glass-scene__content {
-    position: relative;
-    z-index: 0;
-    display: flow-root;
-  }
-
-  .liquid-glass-scene__canvas {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 1;
-    pointer-events: none;
-    opacity: 0;
-  }
-
-  &[data-liquid-glass-scene-ready='true'] .liquid-glass-scene__canvas,
-  &[data-liquid-glass-scene-pending='true'] .liquid-glass-scene__canvas {
-    opacity: 1;
-  }
-`
-
 /** Owns the canvas and automatically composes supported HTML behind LiquidGlass. */
 export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps>(
-  (
-    {
+  (rawProps, forwardedRef) => {
+    const {
+      as: Root = 'div',
+      includeStyles = true,
+      className = '',
       children,
       background,
       maxPixelRatio = 2,
@@ -62,9 +46,7 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
       canvasContainer,
       onStatusChange,
       ...props
-    },
-    forwardedRef
-  ) => {
+    } = rawProps as LiquidGlassSceneProps & { as?: ElementType }
     const root = useRef<HTMLDivElement | null>(null)
     const content = useRef<HTMLDivElement>(null)
     const canvas = useRef<HTMLCanvasElement>(null)
@@ -127,7 +109,12 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
 
     return (
       <LiquidGlassSceneContext.Provider value={controller}>
-        <SceneStyled {...props} ref={setRoot} data-liquid-glass-scene="">
+        <Root
+          {...props}
+          ref={setRoot}
+          className={`liquid-glass-scene-root ${className}`.trim()}
+          data-liquid-glass-scene=""
+        >
           <div ref={content} className="liquid-glass-scene__content">
             {children}
           </div>
@@ -136,7 +123,8 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
             : canvasContainer
               ? createPortal(output, canvasContainer)
               : null}
-        </SceneStyled>
+          {includeStyles && <SceneStyles />}
+        </Root>
       </LiquidGlassSceneContext.Provider>
     )
   }
