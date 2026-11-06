@@ -4,6 +4,7 @@ import { createRef } from 'react'
 import { LiquidGlass } from '../LiquidGlass'
 import * as capture from '../backdrop-capture'
 import * as renderer from '../webgl-refraction'
+import { LiquidGlassSceneContext } from '../scene/context'
 
 describe('LiquidGlass', () => {
   afterEach(() => {
@@ -66,7 +67,9 @@ describe('LiquidGlass', () => {
     const draw = vi.fn().mockReturnValue(true)
     const dispose = vi.fn()
     const unsubscribe = vi.fn()
-    const create = vi.spyOn(renderer, 'createWebGLRefraction').mockReturnValue({ render: draw, dispose })
+    const create = vi
+      .spyOn(renderer, 'createWebGLRefraction')
+      .mockReturnValue({ render: draw, dispose })
     let deliver: ((image: HTMLCanvasElement | null, generation?: number) => void) | undefined
     const subscribe = vi.spyOn(capture, 'subscribeBackdrop').mockImplementation((listener) => {
       deliver = listener
@@ -75,10 +78,20 @@ describe('LiquidGlass', () => {
     const { rerender, unmount } = render(<LiquidGlass distortionScale={-180}>Content</LiquidGlass>)
     const source = document.createElement('canvas')
     act(() => deliver?.(source, 12))
-    expect(draw).toHaveBeenCalledWith(source, expect.objectContaining({ distortionScale: -180, frameId: 12 }))
+    expect(draw).toHaveBeenCalledWith(
+      source,
+      expect.objectContaining({ distortionScale: -180, frameId: 12 })
+    )
 
-    rerender(<LiquidGlass distortionScale={-260} redOffset={8}>Content</LiquidGlass>)
-    expect(draw).toHaveBeenLastCalledWith(source, expect.objectContaining({ distortionScale: -260, redOffset: 8, frameId: 12 }))
+    rerender(
+      <LiquidGlass distortionScale={-260} redOffset={8}>
+        Content
+      </LiquidGlass>
+    )
+    expect(draw).toHaveBeenLastCalledWith(
+      source,
+      expect.objectContaining({ distortionScale: -260, redOffset: 8, frameId: 12 })
+    )
     expect(create).toHaveBeenCalledOnce()
     expect(subscribe).toHaveBeenCalledOnce()
     expect(dispose).not.toHaveBeenCalled()
@@ -110,7 +123,9 @@ describe('LiquidGlass', () => {
     })
     const { container, unmount } = render(<LiquidGlass>Content</LiquidGlass>)
     const root = container.firstChild as HTMLElement
-    const rect = vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 80, 200, 100))
+    const rect = vi
+      .spyOn(root, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(10, 80, 200, 100))
     const source = document.createElement('canvas')
     act(() => deliver?.(source, 1))
     rect.mockReturnValue(new DOMRect(10, 20, 200, 100))
@@ -142,8 +157,9 @@ describe('LiquidGlass', () => {
 
   it('uses equal channel displacement by default to avoid colored edge bands', () => {
     const { container } = render(<LiquidGlass />)
-    const scales = Array.from(container.querySelectorAll('feDisplacementMap'),
-      (channel) => channel.getAttribute('scale'))
+    const scales = Array.from(container.querySelectorAll('feDisplacementMap'), (channel) =>
+      channel.getAttribute('scale')
+    )
     expect(scales).toEqual(['-180', '-180', '-180'])
   })
 
@@ -157,7 +173,7 @@ describe('LiquidGlass', () => {
     const { container } = render(
       <LiquidGlass width="100%" height="50vh">
         x
-      </LiquidGlass>,
+      </LiquidGlass>
     )
     const root = container.firstChild as HTMLElement
     expect(root.style.width).toBe('100%')
@@ -168,10 +184,79 @@ describe('LiquidGlass', () => {
     const { container } = render(
       <LiquidGlass glassColor="#ff6b6b" backgroundOpacity={0.5}>
         x
-      </LiquidGlass>,
+      </LiquidGlass>
     )
     const root = container.firstChild as HTMLElement
     expect(root.style.getPropertyValue('--glass-color')).toBe('#ff6b6b')
     expect(root.style.getPropertyValue('--glass-frost')).toBe('0.5')
+  })
+
+  it('uses the Studio material for a managed native fallback', () => {
+    const controller = { register: vi.fn(() => vi.fn()), update: vi.fn() }
+    const { container } = render(
+      <LiquidGlassSceneContext.Provider value={controller}>
+        <LiquidGlass shapeRadius={100} blurRadius={3} tint={{ r: 22, g: 35, b: 43, a: 0.75 }} />
+      </LiquidGlassSceneContext.Provider>
+    )
+    const root = container.firstChild as HTMLElement
+    expect(root).toHaveClass('liquid-glass--managed', 'liquid-glass--fallback')
+    expect(root.style.getPropertyValue('--glass-managed-background')).toBe('rgba(22, 35, 43, 0.6)')
+    expect(root.style.getPropertyValue('--glass-managed-simple-background')).toBe(
+      'rgba(22, 35, 43, 0.6)'
+    )
+    expect(root.style.getPropertyValue('--glass-managed-blur')).toBe('3px')
+    expect(root.style.borderRadius).toBe('var(--glass-managed-radius, var(--glass-base-radius))')
+  })
+
+  it('keeps legacy color and radius precedence for managed panes', () => {
+    const controller = { register: vi.fn(() => vi.fn()), update: vi.fn() }
+    const { container } = render(
+      <LiquidGlassSceneContext.Provider value={controller}>
+        <LiquidGlass glassColor="#ff6b6b" backgroundOpacity={0.5} borderRadius={12} />
+      </LiquidGlassSceneContext.Provider>
+    )
+    const root = container.firstChild as HTMLElement
+    expect(root.style.getPropertyValue('--glass-managed-background')).toBe(
+      'color-mix(in oklch, var(--glass-color) calc(var(--glass-frost) * 100%), transparent)'
+    )
+    expect(root.style.getPropertyValue('--glass-color')).toBe('#ff6b6b')
+    expect(root.style.getPropertyValue('--glass-frost')).toBe('0.5')
+    expect(root.style.getPropertyValue('--glass-managed-simple-background')).toBe('')
+    expect(root.style.borderRadius).toBe('12px')
+  })
+
+  it('only applies the Studio fallback treatment while the scene is not ready or pending', () => {
+    const controller = { register: vi.fn(() => vi.fn()), update: vi.fn() }
+    const { container } = render(
+      <div data-liquid-glass-scene="">
+        <LiquidGlassSceneContext.Provider value={controller}>
+          <LiquidGlass tint={{ r: 22, g: 35, b: 43, a: 0.75 }} />
+        </LiquidGlassSceneContext.Provider>
+      </div>
+    )
+    const scene = container.firstChild as HTMLElement
+    const root = scene.firstChild as HTMLElement
+    const rules: CSSStyleRule[] = []
+    const collect = (list: CSSRuleList) => {
+      for (const rule of Array.from(list)) {
+        if (rule instanceof CSSStyleRule) rules.push(rule)
+        else if ('cssRules' in rule) collect((rule as CSSGroupingRule).cssRules)
+      }
+    }
+    for (const sheet of Array.from(document.styleSheets)) collect(sheet.cssRules)
+    const fallbackRule = rules.find(
+      (rule) => rule.style.background === 'var(--glass-managed-background)'
+    )
+    if (!fallbackRule) throw new Error('Managed fallback selector was not generated')
+    // jsdom's selector engine does not support nested :not() inside :where().
+    const selector = fallbackRule.selectorText
+      .replace(/\s+/g, ' ')
+      .replace(/^:where\((.*)\) /, '$1 ')
+    expect(root.matches(selector)).toBe(true)
+    scene.dataset.liquidGlassSceneReady = 'true'
+    expect(root.matches(selector)).toBe(false)
+    delete scene.dataset.liquidGlassSceneReady
+    scene.dataset.liquidGlassScenePending = 'true'
+    expect(root.matches(selector)).toBe(false)
   })
 })

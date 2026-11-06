@@ -164,18 +164,50 @@ export function SceneWithStatus() {
 ```
 
 Unsupported CSS/DOM keeps original HTML visible and reports fallback reasons. Current limits
-include unsupported CSS effects, generated pseudo-content and masks, rotation/perspective,
-iframes, Shadow DOM, deeply nested clipping and active native editing controls. A single
-`brightness()` filter is supported when its value darkens from `0` through `1`, provided the
-filtered group has no glass descendants or group opacity. Other filter functions and brightening
-values fall back to native HTML. Pure 2D translations on supported
-positioned pseudo-elements are supported, while rotation and scaling remain unsupported.
-Translate, scale and opacity animations are tracked. Text selection is not mirrored into the
-canvas; cross-origin media needs CORS.
+include unsupported CSS effects, generated pseudo-content, rotation/perspective, iframes, Shadow
+DOM, deeply nested clipping and active native editing controls. A single `brightness()` filter
+is supported when its value darkens from `0` through `1`; `blur(0px)` is treated as an identity
+while preserving containing-block semantics. Pure 2D translations are supported on eligible
+positioned elements and pseudo-elements, while rotation, individual scaling and 3D transforms remain
+unsupported.
 
-`presentation="glass-only"` shows the canvas only inside one enclosing pane. All registered
-panes must fit inside it, and it must fit inside the scene and viewport. This mode requires
-`shapeRoundness={2}`, `shadowFactor={0}` and CSS `clip-path` support. Content outside the pane
+Managed panes use native backdrop blur during fallback. The fallback approximates Studio `tint`
+and `blurRadius` when the browser supports them; it does not refract the background.
+
+Bounded static subtrees can use one vertical or horizontal black-to-transparent linear gradient
+mask with pixel, percentage or `calc(100% - …px)` stops. They can also use exactly two orthogonal
+alpha-only linear gradients, intersected with `mask-composite: intersect` and
+`-webkit-mask-composite: source-in`. Chromium may serialize the prefixed value as `intersect`; the
+standard and prefixed lists must still match. The combined mask is limited to 4096 pixels per side
+and 2 million pixels total. Unsupported nested opacity, live media, additional mask layers or clipping
+within the subtree still reports fallback.
+
+Some solid, pixel-aligned boxes with a single rounded bottom border use a verified, self-contained
+SVG image for their background and border. If data images or SVG `foreignObject` are unavailable,
+or if raster verification fails, the normal fallback remains active.
+
+The scene has limited backdrop-filter support. It can compose an empty element with one alpha
+`linear-gradient()` mask, and a uniform-radius card with `backdrop-filter: blur(...)`, when the
+element has safe geometry and no unsupported backdrop-root ancestor. Backdrop blur may be followed
+by `saturate(...)` and then `brightness(...)`, each between `0` and `4`. Supported sprite and video
+groups are composited before group opacity is applied. A 2D canvas inside such a group must declare
+`data-liquid-glass-canvas="2d"`; do not use this attribute on a WebGL canvas. A group can also fade
+one shadowless Studio pane or one supported backdrop when it is the group's first paint and the scene background is opaque.
+
+For a default sRGB 8-bit 2D canvas, its owner may set `data-liquid-glass-canvas-format="srgb8"`
+after the context is initialized, in addition to `data-liquid-glass-canvas="2d"`. This allows the
+glass-only renderer to crop safe source uploads without changing their pixel resolution. The
+attribute is an assertion about the existing context, not a request to create or change it.
+
+Nested opacity, unmarked canvases, other backdrop layers inside an opacity group, unsupported inset-shadow geometry,
+unsupported mask modes or layers beyond the supported one- or two-gradient forms,
+SVG `url(...)` filters, and complex clipping remain native HTML paths. In glass-only mode, a blur
+layer crossing the viewport edge mirrors the visible snapshot. Its edge may differ from native blur
+that samples pixels outside the viewport. Text selection is not mirrored into the canvas; cross-origin media needs CORS.
+
+`presentation="glass-only"` shows the canvas only inside the visible managed panes. Each pane
+must fit inside the scene and viewport. This mode requires `shapeRoundness={2}`, `shadowFactor={0}`
+and CSS `clip-path` support; separate panes also require `clip-path: path(...)`. Content outside the panes
 remains native and interactive. Unsupported content or geometry reports `fallback`.
 During a short pending image or SVG load, this mode can retain the last rendered frame and report
 `pending`; the visible backdrop may briefly belong to the previous frame. A prolonged load or

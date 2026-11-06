@@ -1,4 +1,5 @@
 import { boxRadii, paintBox, splitCss } from './paint-box'
+import { isSupportedIndividualTranslate } from './translate'
 import type { SceneRect } from './types'
 
 export type PseudoName = '::before' | '::after'
@@ -165,8 +166,12 @@ function ringMaskDetail(style: CSSStyleDeclaration): PseudoMaskDetail | null {
   // when the prefixed alias returns the same supported value.
   const matchingLegacyAlias = (value: string) =>
     legacyComposite(value) &&
-    splitCss(value).map((part) => part.trim()).join(',') ===
-      splitCss(prefixedComposite).map((part) => part.trim()).join(',')
+    splitCss(value)
+      .map((part) => part.trim())
+      .join(',') ===
+      splitCss(prefixedComposite)
+        .map((part) => part.trim())
+        .join(',')
   if (
     !compatible(
       prefixedComposite,
@@ -343,7 +348,7 @@ export function measurePseudoBox(
     const scale = axisScale(ancestorStyle.transform)
     if (
       !scale ||
-      !none(ancestorStyle.translate) ||
+      !isSupportedIndividualTranslate(ancestorStyle.translate) ||
       !none(ancestorStyle.rotate) ||
       !none(ancestorStyle.scale) ||
       !none(ancestorStyle.perspective) ||

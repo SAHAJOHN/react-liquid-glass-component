@@ -1,5 +1,15 @@
 import type { SceneRect } from './types'
 
+const emptyLegacyClip =
+  /^rect\(\s*0(?:px)?(?:\s*,\s*|\s+)0(?:px)?(?:\s*,\s*|\s+)0(?:px)?(?:\s*,\s*|\s+)0(?:px)?\s*\)$/i
+
+/** The legacy `clip` property applies only to absolutely positioned boxes. */
+export function isEmptyLegacyClip(style: CSSStyleDeclaration): boolean {
+  if (style.position !== 'absolute' && style.position !== 'fixed') return false
+  const value = style.clip?.trim() ?? ''
+  return emptyLegacyClip.test(value)
+}
+
 /** True only when the entire inner rectangle fits inside the rounded outer clip. */
 export function roundedClipContainsRect(
   outer: SceneRect,

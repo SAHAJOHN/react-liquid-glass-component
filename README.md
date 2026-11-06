@@ -77,7 +77,7 @@ export function Page() {
 | `onStatusChange` | —                          | Receives `ready`, `pending`, or `fallback`; the latter include reasons. |
 | `canvasContainer` | —                    | Optional fixed container for the composed canvas in `glass-only` mode. |
 
-For a fixed navigation bar, `presentation="glass-only"` keeps the surrounding page native and shows the canvas inside one enclosing pane:
+For a fixed navigation bar, `presentation="glass-only"` keeps the surrounding page native and shows the canvas inside the managed panes:
 
 ```tsx
 <LiquidGlassScene presentation="glass-only">
@@ -118,11 +118,27 @@ registered pane must be inside the container. Unsupported geometry reports `fall
 keeps native HTML visible. Omitting `canvasContainer` keeps the default canvas placement.
 Passing `null` waits for the fixed element to mount before starting the scene.
 
-All panes must fit inside one enclosing pane, which must fit inside the scene and viewport. Glass-only mode requires `shapeRoundness={2}`, `shadowFactor={0}` and CSS `clip-path` support.
+Every visible pane must fit inside the scene and viewport. Glass-only mode requires `shapeRoundness={2}`, `shadowFactor={0}` and CSS `clip-path` support; separate panes also require CSS `clip-path: path(...)`. During elastic scrolling, the scene retains 3D only while it can validate that the panes and their fixed container move together.
 
 In glass-only mode, the scene can briefly retain its last rendered frame while images or SVGs load. `onStatusChange` reports `pending` during this interval; the previous backdrop can remain visible until the new frame is ready. If loading takes too long or the scene encounters unsupported content, it reports `fallback` and shows the original HTML.
 
-When the scene cannot compile part of the page, the original HTML remains visible and the scene reports the reason. The scene supports a single darkening `brightness()` filter from `0` through `1`, and pure 2D translations on supported positioned pseudo-elements. Filtered groups containing glass or group opacity, other filters, brightening values, rotations, masks, deeply nested clipping, perspective, iframes, Shadow DOM, and active native editing controls remain unsupported. Portals outside the scene are not captured, and text selection is not mirrored into the canvas. Cross-origin media needs CORS permission.
+During fallback, managed panes use native backdrop blur and approximate the Studio `tint` and `blurRadius` settings. Native fallback does not refract the background.
+
+When the scene cannot compile part of the page, the original HTML remains visible and the scene reports the reason. The scene supports a single darkening `brightness()` filter from `0` through `1`, `blur(0px)` as an identity filter, pure 2D translations, selected backdrop blur layers, and some opacity groups. An empty layer with a single alpha `linear-gradient()` mask and a uniform-radius card can use `backdrop-filter: blur(...)`, optionally followed by `saturate(...)` and `brightness(...)`, when their geometry and ancestors are safe. An opacity group can fade one shadowless Studio pane or one supported backdrop when it is the group's first paint and the scene background is opaque. Arbitrary masks, unsupported mask layers, SVG `url(...)` filters, other filters, regular brightness filters above `1`, nested opacity, other backdrop filters inside opacity groups, rotations, deeply nested clipping, perspective, iframes, Shadow DOM, and active native editing controls remain unsupported. Portals outside the scene are not captured, and text selection is not mirrored into the canvas. Cross-origin media needs CORS permission.
+
+The scene can also composite a bounded static subtree with either one vertical or horizontal black-to-transparent linear gradient mask, or exactly two orthogonal alpha-only linear gradients intersected with `mask-composite: intersect` and `-webkit-mask-composite: source-in`. Chromium may serialize the prefixed value as `intersect`; the standard and prefixed lists must still match. Pixel, percentage and `calc(100% - …px)` stops are supported. The combined mask is bounded to 4096 pixels per side and 2 million pixels total. Nested opacity, live media, unsupported clipping and other mask layers can still trigger fallback.
+
+Some solid boxes with a rounded bottom border use a self-contained SVG image rendered by the browser. Rasterization and subpixel positioning can still differ from native HTML. The scene verifies that the image renders before using it; if the browser or Content Security Policy blocks it, or the box geometry is unsupported, the scene retains its fallback.
+
+For an animated 2D canvas inside an opacity group, declare its context with `<canvas data-liquid-glass-canvas="2d" />`. Only use this attribute for a canvas that uses a 2D context. Unmarked canvases inside opacity groups remain native because the scene cannot safely infer their context type.
+
+To reduce uploads for a large 2D canvas in glass-only mode, its owner can set
+`data-liquid-glass-canvas-format="srgb8"` after creating its default sRGB, 8-bit 2D context. Keep
+`data-liquid-glass-canvas="2d"` on the element. This declaration asserts that the context is
+already initialized and uses that format. The scene may upload only the sampled area when its
+geometry is safe; other canvases continue using the full source.
+
+In glass-only mode, supported backdrop layers can extend beyond the viewport. Blur samples at the viewport edge mirror the visible snapshot, so the result near that edge can differ from a browser that samples content outside the viewport. Unsupported geometry and effects can still cause a fallback.
 
 ## Glass options
 

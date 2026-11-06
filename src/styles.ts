@@ -25,13 +25,7 @@ export const LiquidGlassStyled = styled.div.withConfig({ componentId: 'liquid-gl
 
   &.liquid-glass--managed {
     isolation: isolate;
-  }
-
-  [data-liquid-glass-scene-ready='true'] &.liquid-glass--managed,
-  [data-liquid-glass-scene-pending='true'] &.liquid-glass--managed {
-    /* The scene already paints the glass. Avoid a second native backdrop pass. */
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+    --glass-managed-radius: 9999px;
   }
 
   .liquid-glass__content {
@@ -117,6 +111,28 @@ export const LiquidGlassStyled = styled.div.withConfig({ componentId: 'liquid-gl
     -webkit-backdrop-filter: blur(2px) saturate(var(--glass-saturation, 1));
   }
 
+  :where(
+      [data-liquid-glass-scene]:not([data-liquid-glass-scene-ready='true']):not(
+          [data-liquid-glass-scene-pending='true']
+        )
+    )
+    &.liquid-glass--fallback {
+    background: var(--glass-managed-simple-background, rgba(255, 255, 255, 0.08));
+    backdrop-filter: blur(var(--glass-managed-blur)) saturate(var(--glass-saturation, 1));
+    -webkit-backdrop-filter: blur(var(--glass-managed-blur)) saturate(var(--glass-saturation, 1));
+  }
+
+  @supports (background: color-mix(in oklch, black, transparent)) {
+    :where(
+        [data-liquid-glass-scene]:not([data-liquid-glass-scene-ready='true']):not(
+            [data-liquid-glass-scene-pending='true']
+          )
+      )
+      &.liquid-glass--fallback {
+      background: var(--glass-managed-background);
+    }
+  }
+
   @supports not ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
     &.liquid-glass--fallback {
       background: rgba(255, 255, 255, 0.4);
@@ -129,6 +145,14 @@ export const LiquidGlassStyled = styled.div.withConfig({ componentId: 'liquid-gl
         background: rgba(0, 0, 0, 0.4);
       }
     }
+  }
+
+  [data-liquid-glass-scene-ready='true'] &.liquid-glass--managed,
+  [data-liquid-glass-scene-pending='true'] &.liquid-glass--managed {
+    /* The scene already paints the glass. Avoid a second native backdrop pass. */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    --glass-managed-radius: var(--glass-base-radius);
   }
 
   &.liquid-glass:focus-visible {

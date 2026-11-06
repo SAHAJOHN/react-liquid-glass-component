@@ -13,6 +13,8 @@ export interface SceneClip {
   space: 'document' | 'viewport'
   radius: number
   roundness?: number
+  /** DOM element establishing this clip, when known to the compiler. */
+  owner?: Element
 }
 
 export interface GlassOptions {
@@ -41,7 +43,7 @@ interface SceneBase {
   clips?: readonly SceneClip[]
 }
 
-export type SceneItem =
+export type SceneOpacityPaint =
   | (SceneBase & { kind: 'sprite'; bitmap: HTMLCanvasElement })
   | (SceneBase & {
       kind: 'media'
@@ -51,18 +53,37 @@ export type SceneItem =
       radius: number
     })
   | (SceneBase & { kind: 'solid'; radius: number; color: SceneColor })
+export type SceneGlass = SceneBase & {
+  kind: 'glass'
+  radius: number
+  displacement: readonly [number, number, number]
+  blur: number
+  saturation: number
+  tint: SceneColor
+  thickness?: number
+  magnification?: number
+  studio?: GlassStudioProps
+  map?: { bitmap: HTMLCanvasElement; xChannel: 0 | 1 | 2; yChannel: 0 | 1 | 2 }
+}
+export type SceneBackdrop = SceneBase & {
+  kind: 'backdrop'
+  bitmap: HTMLCanvasElement
+  sigma: number
+  radius: number
+  filterSaturation?: number
+  filterBrightness?: number
+}
+export type SceneOpacityGroupPaint = SceneOpacityPaint | SceneGlass | SceneBackdrop
+export type SceneItem =
+  | SceneOpacityPaint
   | (SceneBase & {
-      kind: 'glass'
-      radius: number
-      displacement: readonly [number, number, number]
-      blur: number
-      saturation: number
-      tint: SceneColor
-      thickness?: number
-      magnification?: number
-      studio?: GlassStudioProps
-      map?: { bitmap: HTMLCanvasElement; xChannel: 0 | 1 | 2; yChannel: 0 | 1 | 2 }
+      kind: 'opacity-group'
+      items: readonly SceneOpacityGroupPaint[]
+      /** Alpha mask applied once after the children have been composed. */
+      mask?: { bitmap: HTMLCanvasElement; rect: SceneRect; space: 'document' | 'viewport' }
     })
+  | SceneBackdrop
+  | SceneGlass
 
 export interface SceneFrame {
   scrollX: number
@@ -75,6 +96,12 @@ export interface SceneFrame {
 export interface GlassScene {
   background: SceneColor
   items: readonly SceneItem[]
+  /** Conservative viewport-space sampling bounds for glass-only presentation. */
+  samplingRegion?: SceneRect
+  /** Disjoint optical regions; the enclosing rectangle remains available for compatibility. */
+  samplingRegions?: readonly SceneRect[]
+  /** Conservative source regions after propagating backdrop dependencies. */
+  renderRegions?: readonly SceneRect[]
 }
 export interface SceneRenderer {
   setScene(scene: GlassScene): void
@@ -88,7 +115,7 @@ export interface SceneTarget {
   brightness?: number
 }
 export interface SamplingWatch {
-  element: HTMLImageElement | SVGSVGElement
+  element: Element
   relation: 'inside' | 'outside' | 'invalid'
 }
 export interface CompiledScene {
@@ -97,7 +124,11 @@ export interface CompiledScene {
   issues: string[]
   /** Sticky positions need fresh geometry during window scroll. Nested scroll invalidates separately. */
   liveGeometry: boolean
-  /** Unresolved bounded assets to remeasure without recompiling the full DOM. */
+  /** Pure window scrolling preserves the captured paint geometry. The caller must still
+   * validate capture coverage, animations, layout and the fixed container's bounds.
+   */
+  scrollTranslationSafe?: boolean
+  /** Bounded off-region content to remeasure without recompiling the full DOM. */
   samplingWatches?: readonly SamplingWatch[]
   media: (HTMLVideoElement | HTMLCanvasElement)[]
 }
@@ -108,7 +139,11 @@ export interface SceneCompiler {
     frame: SceneFrame,
     background: string,
     /** Conservative glass sampling area in viewport CSS pixels, if one is known. */
-    samplingRegion?: SceneRect
+    samplingRegion?: SceneRect,
+    /** Optional disjoint optical regions, each including the total glass apron. */
+    samplingRegions?: readonly SceneRect[],
+    /** Request a scroll-translation proof for one fixed navigation branch. */
+    fixedContainer?: HTMLElement
   ): CompiledScene
   dispose(): void
 }

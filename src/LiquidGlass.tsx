@@ -6,6 +6,7 @@ import {
   useId,
   useCallback,
   useContext,
+  useMemo,
   type CSSProperties,
   type HTMLAttributes,
 } from 'react'
@@ -13,7 +14,12 @@ import { LiquidGlassStyled } from './styles'
 import { useWebGLBackdrop } from './use-webgl-backdrop'
 import { LiquidGlassSceneContext } from './scene/context'
 import { createDisplacementMapSvg } from './displacement-map'
-import { GLASS_STUDIO_PROP_KEYS, resolveStudioProps, type GlassStudioProps } from './studio-props'
+import {
+  GLASS_STUDIO_DEFAULTS,
+  GLASS_STUDIO_PROP_KEYS,
+  resolveStudioProps,
+  type GlassStudioProps,
+} from './studio-props'
 
 export interface LiquidGlassProps
   extends HTMLAttributes<HTMLDivElement>, Partial<GlassStudioProps> {
@@ -94,7 +100,90 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
     mixBlendMode = 'difference',
     ...rest
   } = props
-  const studio = resolveStudioProps(props)
+  const tintR = props.tint?.r
+  const tintG = props.tint?.g
+  const tintB = props.tint?.b
+  const tintA = props.tint?.a
+  const shadowX = props.shadowPosition?.x
+  const shadowY = props.shadowPosition?.y
+  const studio = useMemo(
+    () =>
+      resolveStudioProps({
+        refThickness: props.refThickness ?? thickness,
+        refDistance:
+          props.refDistance ??
+          (Number.isFinite(distortionScale)
+            ? (Math.abs(distortionScale) / 180) * 0.05
+            : GLASS_STUDIO_DEFAULTS.refDistance),
+        refFactor: props.refFactor ?? GLASS_STUDIO_DEFAULTS.refFactor,
+        refDispersion: props.refDispersion ?? GLASS_STUDIO_DEFAULTS.refDispersion,
+        refFresnelRange: props.refFresnelRange ?? GLASS_STUDIO_DEFAULTS.refFresnelRange,
+        refFresnelHardness:
+          props.refFresnelHardness ?? GLASS_STUDIO_DEFAULTS.refFresnelHardness,
+        refFresnelFactor:
+          props.refFresnelFactor ?? GLASS_STUDIO_DEFAULTS.refFresnelFactor,
+        glareRange: props.glareRange ?? GLASS_STUDIO_DEFAULTS.glareRange,
+        glareHardness: props.glareHardness ?? GLASS_STUDIO_DEFAULTS.glareHardness,
+        glareFactor: props.glareFactor ?? GLASS_STUDIO_DEFAULTS.glareFactor,
+        glareConvergence: props.glareConvergence ?? GLASS_STUDIO_DEFAULTS.glareConvergence,
+        glareOppositeFactor:
+          props.glareOppositeFactor ?? GLASS_STUDIO_DEFAULTS.glareOppositeFactor,
+        glareAngle: props.glareAngle ?? GLASS_STUDIO_DEFAULTS.glareAngle,
+        blurRadius: props.blurRadius ?? displace,
+        blurEdge: props.blurEdge ?? GLASS_STUDIO_DEFAULTS.blurEdge,
+        tint: {
+          r: tintR ?? GLASS_STUDIO_DEFAULTS.tint.r,
+          g: tintG ?? GLASS_STUDIO_DEFAULTS.tint.g,
+          b: tintB ?? GLASS_STUDIO_DEFAULTS.tint.b,
+          a: tintA ?? GLASS_STUDIO_DEFAULTS.tint.a,
+        },
+        shadowExpand: props.shadowExpand ?? GLASS_STUDIO_DEFAULTS.shadowExpand,
+        shadowFactor: props.shadowFactor ?? GLASS_STUDIO_DEFAULTS.shadowFactor,
+        shadowPosition: {
+          x: shadowX ?? GLASS_STUDIO_DEFAULTS.shadowPosition.x,
+          y: shadowY ?? GLASS_STUDIO_DEFAULTS.shadowPosition.y,
+        },
+        shapeRadius: props.shapeRadius ?? GLASS_STUDIO_DEFAULTS.shapeRadius,
+        shapeRoundness: props.shapeRoundness ?? GLASS_STUDIO_DEFAULTS.shapeRoundness,
+        thickness,
+        displace,
+        distortionScale,
+      }),
+    [
+      props.refThickness,
+      props.refDistance,
+      props.refFactor,
+      props.refDispersion,
+      props.refFresnelRange,
+      props.refFresnelHardness,
+      props.refFresnelFactor,
+      props.glareRange,
+      props.glareHardness,
+      props.glareFactor,
+      props.glareConvergence,
+      props.glareOppositeFactor,
+      props.glareAngle,
+      props.blurRadius,
+      props.blurEdge,
+      props.shadowExpand,
+      props.shadowFactor,
+      props.shapeRadius,
+      props.shapeRoundness,
+      tintR,
+      tintG,
+      tintB,
+      tintA,
+      shadowX,
+      shadowY,
+      thickness,
+      displace,
+      distortionScale,
+    ]
+  )
+  const legacyTint =
+    props.tint === undefined &&
+    (props.glassColor !== undefined || props.backgroundOpacity !== undefined)
+  const legacyRadius = props.shapeRadius === undefined && props.borderRadius !== undefined
   for (const key of GLASS_STUDIO_PROP_KEYS) delete rest[key]
   const internalRef = useRef<HTMLDivElement | null>(null)
   const scene = useContext(LiquidGlassSceneContext)
@@ -142,10 +231,8 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
       thickness,
       magnification: bodyMagnification,
       studio,
-      legacyTint:
-        props.tint === undefined &&
-        (props.glassColor !== undefined || props.backgroundOpacity !== undefined),
-      legacyRadius: props.shapeRadius === undefined && props.borderRadius !== undefined,
+      legacyTint,
+      legacyRadius,
       map: {
         borderRadius,
         borderWidth,
@@ -178,11 +265,8 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
     xChannel,
     yChannel,
     studio,
-    props.tint,
-    props.glassColor,
-    props.backgroundOpacity,
-    props.shapeRadius,
-    props.borderRadius,
+    legacyTint,
+    legacyRadius,
   ])
 
   /** Merge internal ref + forwarded ref */
@@ -291,11 +375,21 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
     setSvgSupported(div.style.backdropFilter !== '')
   }, [filterId, scene])
 
+  const studioTint = `rgba(${studio.tint.r}, ${studio.tint.g}, ${studio.tint.b}, ${Math.round(studio.tint.a * 8000) / 10000})`
   const containerStyle: CSSProperties = {
     ...style,
     ...(width !== 'auto' ? { width: typeof width === 'number' ? `${width}px` : width } : {}),
     ...(height !== 'auto' ? { height: typeof height === 'number' ? `${height}px` : height } : {}),
-    borderRadius: `${borderRadius}px`,
+    borderRadius:
+      scene && studio.shapeRadius === 100 && !legacyRadius
+        ? 'var(--glass-managed-radius, var(--glass-base-radius))'
+        : `${borderRadius}px`,
+    '--glass-base-radius': `${borderRadius}px`,
+    ...(!legacyTint ? { '--glass-managed-simple-background': studioTint } : {}),
+    '--glass-managed-background': legacyTint
+      ? 'color-mix(in oklch, var(--glass-color) calc(var(--glass-frost) * 100%), transparent)'
+      : studioTint,
+    '--glass-managed-blur': `${studio.blurRadius}px`,
     '--glass-color': glassColor ?? 'light-dark(white, black)',
     '--glass-frost': backgroundOpacity,
     '--glass-saturation': saturation,

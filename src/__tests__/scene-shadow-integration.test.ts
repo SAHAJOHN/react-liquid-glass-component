@@ -117,8 +117,8 @@ describe('scene box shadow integration', () => {
     compiler.dispose()
   })
 
-  it('retains fallback for unrepresentable shadows and opacity groups', () => {
-    const { root, rootStyle } = fixture()
+  it('keeps unsupported shadows native and composes safely clipped shadows with opacity', () => {
+    const { root, box, rootStyle } = fixture()
     vi.mocked(paintBoxShadows).mockReturnValue({
       status: 'unsupported',
       reason: 'invalid test shadow',
@@ -130,6 +130,18 @@ describe('scene box shadow integration', () => {
     vi.mocked(paintBoxShadows).mockReturnValue({ status: 'ready', outer })
     rootStyle.opacity = '0.5'
     const freshCompiler = createSceneCompiler(() => {})
+    const result = freshCompiler.compile(root, new Map(), frame, 'white')
+    expect(result.issues).toEqual([])
+    const group = result.scene.items.find((item) => item.kind === 'opacity-group')
+    if (!group || group.kind !== 'opacity-group') throw new Error('Expected GPU opacity group')
+    expect(group.opacity).toBe(0.5)
+    expect(group.items).toHaveLength(3)
+    expect(group.items[0]).toMatchObject({ kind: 'sprite', opacity: 1 })
+    expect(group.items[1]).toMatchObject({ kind: 'sprite', bitmap: outer.bitmap, opacity: 1 })
+    expect(group.items[2]).toMatchObject({ kind: 'sprite', opacity: 1 })
+    expect(group.items[1]?.clips).toEqual(group.items[2]?.clips)
+
+    vi.mocked(box.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 100, 50))
     expect(freshCompiler.compile(root, new Map(), frame, 'white').issues).toContain(
       'CSS box shadows with opacity require native HTML rendering'
     )
@@ -230,7 +242,8 @@ describe('scene box shadow integration', () => {
     boxStyle.boxShadow = 'none'
     vi.mocked(paintBoxShadows).mockReturnValue({ status: 'none' })
     const first = document.createElement('img')
-    first.src = '/avatar.jpg'
+    first.crossOrigin = 'anonymous'
+    first.src = 'https://cdn.example.test/avatar.jpg'
     Object.defineProperties(first, {
       complete: { configurable: true, value: true },
       naturalWidth: { configurable: true, value: 40 },
@@ -262,6 +275,13 @@ describe('scene box shadow integration', () => {
       // React may reuse the old element for a different source; cached assets
       // must not hold a reference to that mutable DOM node.
       first.src = '/another-avatar.jpg'
+      expect(compiler.compile(root, new Map(), frame, 'white').issues).toEqual([])
+      expect(paint).toHaveBeenCalledTimes(1)
+      Object.defineProperties(next, {
+        complete: { configurable: true, value: true },
+        naturalWidth: { configurable: true, value: 40 },
+        naturalHeight: { configurable: true, value: 40 },
+      })
       expect(compiler.compile(root, new Map(), frame, 'white').issues).toEqual([])
       expect(paint.mock.calls[1]?.[0]).toBe(warmed)
     } finally {

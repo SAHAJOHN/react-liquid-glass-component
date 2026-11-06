@@ -31,20 +31,32 @@ export function samplingRelation(rect: SceneRect, region: SceneRect | undefined)
     : 'inside'
 }
 
-/** Check only unresolved assets; native element bounds are already viewport-relative. */
+/** Outside only when the rectangle misses every valid sampling region. */
+export function samplingRelationToRegions(
+  rect: SceneRect,
+  regions: readonly SceneRect[] | undefined
+): SamplingRelation {
+  if (!regions?.length) return 'invalid'
+  const relations = regions.map((region) => samplingRelation(rect, region))
+  if (relations.includes('invalid')) return 'invalid'
+  return relations.includes('inside') ? 'inside' : 'outside'
+}
+
+/** Native element bounds are viewport-relative, including fixed and transformed elements. */
 export function samplingBoundaryChanged(
   host: HTMLElement,
   watches: readonly SamplingWatch[],
-  region: SceneRect | undefined
+  region: SceneRect | undefined,
+  regions?: readonly SceneRect[]
 ): boolean {
   if (!watches.length) return false
   try {
     for (const { element, relation } of watches) {
       if (!element.isConnected || !host.contains(element)) return true
       const bounds = element.getBoundingClientRect()
-      const next = samplingRelation(
+      const next = samplingRelationToRegions(
         { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height },
-        region
+        regions ?? (region ? [region] : undefined)
       )
       if (next === 'invalid' || next !== relation) return true
     }

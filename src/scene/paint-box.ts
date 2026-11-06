@@ -62,7 +62,8 @@ export function roundedPath(
   context: CanvasRenderingContext2D,
   width: number,
   height: number,
-  radii: readonly Radius[]
+  radii: readonly Radius[],
+  exact = false
 ) {
   const [tl = [0, 0], tr = [0, 0], br = [0, 0], bl = [0, 0]] = radii
   const factor = Math.min(
@@ -85,13 +86,21 @@ export function roundedPath(
   context.beginPath()
   context.moveTo(ax, 0)
   context.lineTo(width - bx, 0)
-  context.quadraticCurveTo(width, 0, width, by)
+  if (!exact) context.quadraticCurveTo(width, 0, width, by)
+  else if (bx && by) context.ellipse(width - bx, by, bx, by, 0, -Math.PI / 2, 0)
+  else context.lineTo(width, 0)
   context.lineTo(width, height - cy)
-  context.quadraticCurveTo(width, height, width - cx, height)
+  if (!exact) context.quadraticCurveTo(width, height, width - cx, height)
+  else if (cx && cy) context.ellipse(width - cx, height - cy, cx, cy, 0, 0, Math.PI / 2)
+  else context.lineTo(width, height)
   context.lineTo(dx, height)
-  context.quadraticCurveTo(0, height, 0, height - dy)
+  if (!exact) context.quadraticCurveTo(0, height, 0, height - dy)
+  else if (dx && dy) context.ellipse(dx, height - dy, dx, dy, 0, Math.PI / 2, Math.PI)
+  else context.lineTo(0, height)
   context.lineTo(0, ay)
-  context.quadraticCurveTo(0, 0, ax, 0)
+  if (!exact) context.quadraticCurveTo(0, 0, ax, 0)
+  else if (ax && ay) context.ellipse(ax, ay, ax, ay, 0, Math.PI, Math.PI * 1.5)
+  else context.lineTo(0, 0)
   context.closePath()
 }
 
@@ -264,29 +273,39 @@ export function paintBox(
   height: number,
   ratio: number,
   issues: Set<string>,
-  images: ReadonlyMap<string, HTMLImageElement> = new Map()
+  images: ReadonlyMap<string, HTMLImageElement> = new Map(),
+  part: 'all' | 'background' | 'border' = 'all'
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.ceil(width * ratio))
   canvas.height = Math.max(1, Math.ceil(height * ratio))
   const context = canvas.getContext('2d')
   if (!context) throw new Error('Box canvas unavailable')
-  context.scale(ratio, ratio)
-  roundedPath(context, width, height, boxRadii(style, width, height))
-  context.clip()
-  context.fillStyle = style.backgroundColor
-  context.fillRect(0, 0, width, height)
-  const layers = splitCss(style.backgroundImage)
-  for (let index = layers.length - 1; index >= 0; index -= 1) {
-    const layer = layers[index]
-    if (!layer || layer === 'none') continue
-    const source = backgroundUrl(layer)
-    if (source) {
-      const image = images.get(source)
-      if (image) paintBackgroundImage(context, image, style, index, width, height, issues)
-    } else if (!paintGradient(context, layer, width, height))
-      issues.add(`Unsupported background image: ${layer.slice(0, 80)}`)
+  const radii = boxRadii(style, width, height)
+  const exact = part !== 'all'
+  if (exact && radii.some(([x, y]) => x > 0 && y > 0) && typeof context.ellipse !== 'function') {
+    issues.add('Split rounded box layers require Canvas ellipse')
+    return canvas
   }
+  context.scale(ratio, ratio)
+  roundedPath(context, width, height, radii, exact)
+  context.clip()
+  if (part !== 'border') {
+    context.fillStyle = style.backgroundColor
+    context.fillRect(0, 0, width, height)
+    const layers = splitCss(style.backgroundImage)
+    for (let index = layers.length - 1; index >= 0; index -= 1) {
+      const layer = layers[index]
+      if (!layer || layer === 'none') continue
+      const source = backgroundUrl(layer)
+      if (source) {
+        const image = images.get(source)
+        if (image) paintBackgroundImage(context, image, style, index, width, height, issues)
+      } else if (!paintGradient(context, layer, width, height))
+        issues.add(`Unsupported background image: ${layer.slice(0, 80)}`)
+    }
+  }
+  if (part === 'background') return canvas
   const borders = [
     {
       size: Number.parseFloat(style.borderTopWidth) || 0,
@@ -338,7 +357,7 @@ export function paintBox(
     const inset = firstBorder.size / 2
     context.save()
     context.translate(inset, inset)
-    const radii = boxRadii(style, width, height).map(
+    const innerRadii = radii.map(
       ([x, y]) =>
         [Math.max(0, x - inset), Math.max(0, y - inset)] satisfies readonly [number, number]
     )
@@ -346,7 +365,8 @@ export function paintBox(
       context,
       Math.max(0, width - firstBorder.size),
       Math.max(0, height - firstBorder.size),
-      radii
+      innerRadii,
+      exact
     )
     context.lineWidth = firstBorder.size
     context.strokeStyle = firstBorder.color

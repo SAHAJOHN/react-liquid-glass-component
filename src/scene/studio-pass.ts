@@ -98,40 +98,61 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
     if (typeof uniformLimit !== 'number' || uniformLimit < 16) {
       throw new Error('Studio rendering needs the WebGL minimum fragment uniform budget')
     }
-    const surface = program(gl, studioFragmentSource)
-    programs.push(surface.value)
-    const blur = program(gl, studioBlurFragmentSource)
-    programs.push(blur.value)
-    const surfaceUniform = {
-      viewport: surface.uniform('u_viewport'),
-      rect: surface.uniform('u_rect'),
-      lens: surface.uniform('u_lens'),
-      source: surface.uniform('u_source'),
-      blurred: surface.uniform('u_blurred'),
-      shape: surface.uniform('u_shape'),
-      refraction: surface.uniform('u_refraction'),
-      fresnel: surface.uniform('u_fresnel'),
-      glare: surface.uniform('u_glare'),
-      glareDirection: surface.uniform('u_glareDirection'),
-      tint: surface.uniform('u_tint'),
-      shadow: surface.uniform('u_shadow'),
-      info: surface.uniform('u_surfaceInfo'),
-      flags: surface.uniform('u_flags'),
-      clips: surface.uniform('u_clips[0]'),
-      clipShapes: surface.uniform('u_clipShapes[0]'),
+    const textureLimit: unknown = gl.getParameter(gl.MAX_TEXTURE_SIZE)
+    const makePrograms = (capacity: boolean) => {
+      const prefix = capacity ? '#define STUDIO_CAPACITY 1\n' : ''
+      const surface = program(gl, prefix + studioFragmentSource)
+      let blur: Program | undefined
+      try {
+        blur = program(gl, prefix + studioBlurFragmentSource)
+        const surfaceUniform = {
+          viewport: surface.uniform('u_viewport'),
+          rect: surface.uniform('u_rect'),
+          lens: surface.uniform('u_lens'),
+          source: surface.uniform('u_source'),
+          blurred: surface.uniform('u_blurred'),
+          shape: surface.uniform('u_shape'),
+          refraction: surface.uniform('u_refraction'),
+          fresnel: surface.uniform('u_fresnel'),
+          glare: surface.uniform('u_glare'),
+          glareDirection: surface.uniform('u_glareDirection'),
+          tint: surface.uniform('u_tint'),
+          shadow: surface.uniform('u_shadow'),
+          info: surface.uniform('u_surfaceInfo'),
+          flags: surface.uniform('u_flags'),
+          clips: surface.uniform('u_clips[0]'),
+          clipShapes: surface.uniform('u_clipShapes[0]'),
+        }
+        const blurUniform = {
+          viewport: blur.uniform('u_viewport'),
+          rect: blur.uniform('u_rect'),
+          source: blur.uniform('u_source'),
+          kernelTexture: blur.uniform('u_kernelTexture'),
+          kernelPacked: blur.uniform('u_kernelPacked'),
+          direction: blur.uniform('u_direction'),
+          bounds: blur.uniform('u_bounds'),
+          center: blur.uniform('u_center'),
+          normalization: blur.uniform('u_normalization'),
+          count: blur.uniform('u_count'),
+        }
+        return { surface, blur, surfaceUniform, blurUniform }
+      } catch (error) {
+        if (blur) gl.deleteProgram(blur.value)
+        gl.deleteProgram(surface.value)
+        throw error
+      }
     }
-    const blurUniform = {
-      viewport: blur.uniform('u_viewport'),
-      rect: blur.uniform('u_rect'),
-      source: blur.uniform('u_source'),
-      kernelTexture: blur.uniform('u_kernelTexture'),
-      kernelPacked: blur.uniform('u_kernelPacked'),
-      direction: blur.uniform('u_direction'),
-      bounds: blur.uniform('u_bounds'),
-      center: blur.uniform('u_center'),
-      normalization: blur.uniform('u_normalization'),
-      count: blur.uniform('u_count'),
+    let capacityEnabled = uniformLimit >= 32 && typeof textureLimit === 'number' && textureLimit > 0
+    let pair
+    try {
+      pair = makePrograms(capacityEnabled)
+    } catch (error) {
+      if (!capacityEnabled) throw error
+      capacityEnabled = false
+      pair = makePrograms(false)
     }
+    const { surface, blur, surfaceUniform, blurUniform } = pair
+    programs.push(surface.value, blur.value)
     buffer = gl.createBuffer()
     if (!buffer) throw new Error('Cannot allocate Studio quad')
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
@@ -220,37 +241,93 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
     }
     let width = 0,
       height = 0,
+      storageWidth = 0,
+      storageHeight = 0,
+      reserveDisabled = false,
       lastRadius = -1
-    const resize = (nextWidth: number, nextHeight: number) => {
-      if (width === nextWidth && height === nextHeight) return
-      for (const item of [horizontal, vertical]) {
-        gl.activeTexture(gl.TEXTURE0)
-        gl.bindTexture(gl.TEXTURE_2D, item.texture)
-        gl.texImage2D(
-          gl.TEXTURE_2D,
-          0,
-          gl.RGBA,
-          nextWidth,
-          nextHeight,
-          0,
-          gl.RGBA,
-          gl.UNSIGNED_BYTE,
-          null
-        )
-        gl.bindFramebuffer(gl.FRAMEBUFFER, item.framebuffer)
-        gl.framebufferTexture2D(
-          gl.FRAMEBUFFER,
-          gl.COLOR_ATTACHMENT0,
-          gl.TEXTURE_2D,
-          item.texture,
-          0
-        )
-        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE)
-          throw new Error('Studio blur framebuffer is incomplete')
+    const resize = (nextWidth: number, nextHeight: number, mayReserve: boolean) => {
+      if (
+        width === nextWidth &&
+        height === nextHeight &&
+        (mayReserve || storageHeight === nextHeight)
+      )
+        return
+      if (
+        mayReserve &&
+        storageWidth === nextWidth &&
+        nextHeight <= storageHeight &&
+        storageHeight - nextHeight <= 256
+      ) {
+        width = nextWidth
+        height = nextHeight
+        return
       }
-      if (gl.getError() !== gl.NO_ERROR) throw new Error('Cannot allocate Studio blur storage')
+      const reserve = Math.ceil((nextHeight + 128) / 128) * 128
+      let allocationHeight =
+        mayReserve &&
+        typeof textureLimit === 'number' &&
+        textureLimit > 0 &&
+        reserve <= textureLimit &&
+        nextWidth * reserve <= 2_000_000
+          ? reserve
+          : nextHeight
+      if (allocationHeight !== nextHeight && gl.getError() !== gl.NO_ERROR)
+        throw new Error('Cannot allocate Studio blur storage')
+      const allocate = (allocation: number) => {
+        for (const item of [horizontal, vertical]) {
+          gl.activeTexture(gl.TEXTURE0)
+          gl.bindTexture(gl.TEXTURE_2D, item.texture)
+          gl.texImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.RGBA,
+            nextWidth,
+            allocation,
+            0,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            null
+          )
+          gl.bindFramebuffer(gl.FRAMEBUFFER, item.framebuffer)
+          gl.framebufferTexture2D(
+            gl.FRAMEBUFFER,
+            gl.COLOR_ATTACHMENT0,
+            gl.TEXTURE_2D,
+            item.texture,
+            0
+          )
+          if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) return false
+        }
+        return gl.getError() === gl.NO_ERROR
+      }
+      let allocated = false
+      let allocationError: unknown
+      try {
+        allocated = allocate(allocationHeight)
+      } catch (error) {
+        allocationError = error
+      }
+      if (!allocated) {
+        if (allocationHeight === nextHeight || gl.isContextLost()) {
+          if (allocationError) throw allocationError
+          throw new Error('Cannot allocate Studio blur storage')
+        }
+        reserveDisabled = true
+        let cleared = false
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          if (gl.getError() === gl.NO_ERROR) {
+            cleared = true
+            break
+          }
+        }
+        if (!cleared) throw new Error('Cannot allocate Studio blur storage')
+        allocationHeight = nextHeight
+        if (!allocate(allocationHeight)) throw new Error('Cannot allocate Studio blur storage')
+      }
       width = nextWidth
       height = nextHeight
+      storageWidth = nextWidth
+      storageHeight = allocationHeight
     }
     const bind = (value: Program) => {
       gl.useProgram(value.value)
@@ -292,15 +369,27 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
         frame: SceneFrame,
         sceneFramebuffer: WebGLFramebuffer,
         targetWidth: number,
-        targetHeight: number
+        targetHeight: number,
+        sourceFramebuffer: WebGLFramebuffer = sceneFramebuffer
       ) {
         if (disposed || gl.isContextLost()) return false
         const clips = sceneClips(item)
         if (clips.length > MAX_SCENE_CLIPS) return false
         const packedClips = packSceneClips(clips, frame)
         if (!packedClips) return false
-        resize(targetWidth, targetHeight)
+        const mayReserve =
+          capacityEnabled &&
+          !reserveDisabled &&
+          frame.pixelRatio === 1 &&
+          Number.isInteger(frame.width) &&
+          Number.isInteger(frame.height) &&
+          targetWidth === frame.width &&
+          targetHeight === frame.height
+        resize(targetWidth, targetHeight, mayReserve)
         const settings = item.studio
+        // Shadows modify the source scene before refraction. Separate-target
+        // rendering is currently used only for shadowless opacity groups.
+        if (sourceFramebuffer !== sceneFramebuffer && settings.shadowFactor > 0) return false
         const ratio = Math.min(width / frame.width, height / frame.height)
         const referenceDpr = frame.devicePixelRatio ?? frame.pixelRatio
         const shadowExtent =
@@ -323,11 +412,16 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
         gl.viewport(0, 0, width, height)
         gl.uniform2f(surfaceUniform.viewport, frame.width, frame.height)
         gl.uniform4f(surfaceUniform.lens, rect.x, rect.y, rect.width, rect.height)
-        gl.uniform2f(
-          surfaceUniform.shape,
-          (Math.min(rect.width, rect.height) * 0.5 * settings.shapeRadius) / 100,
-          settings.shapeRoundness
-        )
+        const radius = (Math.min(rect.width, rect.height) * 0.5 * settings.shapeRadius) / 100
+        if (capacityEnabled)
+          gl.uniform4f(
+            surfaceUniform.shape,
+            radius,
+            settings.shapeRoundness,
+            height,
+            height / storageHeight
+          )
+        else gl.uniform2f(surfaceUniform.shape, radius, settings.shapeRoundness)
         gl.uniform4f(
           surfaceUniform.refraction,
           settings.refThickness,
@@ -399,7 +493,7 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
         gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
         gl.disable(gl.BLEND)
 
-        const radius = Number.isFinite(settings.blurRadius)
+        const blurRadius = Number.isFinite(settings.blurRadius)
           ? Math.max(0, Math.min(200, Math.round(settings.blurRadius)))
           : 1
         // The SDF's component gradients are bounded by one. This covers the
@@ -410,7 +504,7 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
           settings.refDistance *
           Math.sqrt(Math.max(0, settings.refFactor * settings.refFactor - 1)) *
           (1 + 0.02 * settings.refDispersion)
-        const apron = shift + radius / ratio + aa + 2
+        const apron = shift + blurRadius / ratio + aa + 2
         const region = pixels(
           {
             x: rect.x - apron,
@@ -423,6 +517,7 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
         if (region.right <= region.left || region.bottom <= region.top) return true
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, snapshot)
+        gl.bindFramebuffer(gl.FRAMEBUFFER, sourceFramebuffer)
         gl.copyTexSubImage2D(
           gl.TEXTURE_2D,
           0,
@@ -445,25 +540,28 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
           (region.right - 0.5) / width,
           (height - region.top - 0.5) / height
         )
-        const weights = getKernel(radius)
+        const weights = getKernel(blurRadius)
         gl.activeTexture(gl.TEXTURE1)
         gl.bindTexture(gl.TEXTURE_2D, weights.texture)
         gl.activeTexture(gl.TEXTURE0)
-        if (lastRadius !== radius) {
+        if (lastRadius !== blurRadius) {
           gl.uniform1f(blurUniform.center, weights.center)
           gl.uniform1i(blurUniform.count, weights.count)
           gl.uniform1f(blurUniform.normalization, weights.normalization)
-          lastRadius = radius
+          lastRadius = blurRadius
         }
         scissor(region)
         const bounds = cssRect(region, frame)
         gl.bindFramebuffer(gl.FRAMEBUFFER, horizontal.framebuffer)
         gl.bindTexture(gl.TEXTURE_2D, snapshot)
-        gl.uniform2f(blurUniform.direction, 1 / width, 0)
+        if (capacityEnabled) gl.uniform3f(blurUniform.direction, 1 / width, 0, 1)
+        else gl.uniform2f(blurUniform.direction, 1 / width, 0)
         draw(blurUniform.rect, bounds)
         gl.bindFramebuffer(gl.FRAMEBUFFER, vertical.framebuffer)
         gl.bindTexture(gl.TEXTURE_2D, horizontal.texture)
-        gl.uniform2f(blurUniform.direction, 0, 1 / height)
+        if (capacityEnabled)
+          gl.uniform3f(blurUniform.direction, 0, 1 / height, height / storageHeight)
+        else gl.uniform2f(blurUniform.direction, 0, 1 / height)
         draw(blurUniform.rect, bounds)
 
         bind(surface)

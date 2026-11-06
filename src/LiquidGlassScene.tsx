@@ -15,7 +15,7 @@ export interface LiquidGlassSceneProps extends HTMLAttributes<HTMLDivElement> {
   background?: string
   /** Maximum backing resolution; also limited by the mobile pixel budget. Default 2. */
   maxPixelRatio?: number
-  /** Present only one enclosing pane; native page content stays visible elsewhere. */
+  /** Present managed panes only; native page content stays visible elsewhere. */
   presentation?: 'scene' | 'glass-only'
   /** Fixed container enclosing every pane, used to keep the canvas with native controls. */
   canvasContainer?: HTMLElement | null

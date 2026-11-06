@@ -156,7 +156,11 @@ uniform sampler2D u_source;
 uniform sampler2D u_blurred;
 uniform vec2 u_viewport;
 uniform vec4 u_lens;
+#ifdef STUDIO_CAPACITY
+uniform vec4 u_shape;
+#else
 uniform vec2 u_shape;
+#endif
 uniform vec4 u_refraction;
 uniform vec3 u_fresnel;
 uniform vec4 u_glare;
@@ -193,6 +197,16 @@ vec2 normalAt(vec2 point) {
 vec2 screenUv(vec2 point) {
   return vec2(point.x / u_viewport.x, 1.0 - point.y / u_viewport.y);
 }
+vec4 sampleBlurred(vec2 uv) {
+#ifdef STUDIO_CAPACITY
+  if (u_shape.w < 1.0) {
+  float halfTexelY = 0.5 / u_shape.z;
+  float activeY = clamp(uv.y, halfTexelY, 1.0 - halfTexelY);
+  return texture2D(u_blurred, vec2(uv.x, activeY * u_shape.w));
+  }
+#endif
+  return texture2D(u_blurred, uv);
+}
 vec3 dispersed(vec2 center, vec2 offset, float mixRate) {
   vec3 factor = vec3(1.0 + 0.02 * u_refraction.w, 1.0, 1.0 - 0.02 * u_refraction.w);
   vec3 sharp = vec3(
@@ -201,9 +215,9 @@ vec3 dispersed(vec2 center, vec2 offset, float mixRate) {
     texture2D(u_source, center + offset * factor.b).b
   );
   vec3 blurred = vec3(
-    texture2D(u_blurred, center + offset * factor.r).r,
-    texture2D(u_blurred, center + offset * factor.g).g,
-    texture2D(u_blurred, center + offset * factor.b).b
+    sampleBlurred(center + offset * factor.r).r,
+    sampleBlurred(center + offset * factor.g).g,
+    sampleBlurred(center + offset * factor.b).b
   );
   return mix(sharp, blurred, mixRate);
 }
@@ -251,7 +265,7 @@ void main() {
   vec2 bodyUv = vec2(body.x, -body.y) / u_viewport;
   vec3 color;
   if (edgeFactor <= 0.0) {
-    color = texture2D(u_blurred, uv + bodyUv).rgb;
+    color = sampleBlurred(uv + bodyUv).rgb;
     color = mix(color, u_tint.rgb, u_tint.a * 0.8);
   } else {
     vec2 normal = normalAt(v_screen);
@@ -289,14 +303,22 @@ uniform sampler2D u_source;
 uniform sampler2D u_kernelTexture;
 uniform bool u_kernelPacked;
 uniform vec2 u_viewport;
+#ifdef STUDIO_CAPACITY
+uniform vec3 u_direction;
+#else
 uniform vec2 u_direction;
+#endif
 uniform vec4 u_bounds;
 uniform float u_center;
 uniform float u_normalization;
 uniform int u_count;
 varying vec2 v_screen;
 vec4 sampleAt(vec2 uv) {
-  return texture2D(u_source, clamp(uv, u_bounds.xy, u_bounds.zw));
+  vec2 sampled = clamp(uv, u_bounds.xy, u_bounds.zw);
+#ifdef STUDIO_CAPACITY
+  if (u_direction.z < 1.0) sampled.y *= u_direction.z;
+#endif
+  return texture2D(u_source, sampled);
 }
 void main() {
   vec2 uv = vec2(v_screen.x / u_viewport.x, 1.0 - v_screen.y / u_viewport.y);
@@ -309,7 +331,7 @@ void main() {
       pair = vec2(dot(encoded.rg, vec2(256.0, 1.0)) * 200.0 / 257.0,
                   dot(encoded.ba, vec2(256.0, 1.0)) / 257.0);
     }
-    value += (sampleAt(uv + u_direction * pair.x) + sampleAt(uv - u_direction * pair.x)) * pair.y;
+    value += (sampleAt(uv + u_direction.xy * pair.x) + sampleAt(uv - u_direction.xy * pair.x)) * pair.y;
   }
   gl_FragColor = value * u_normalization;
 }

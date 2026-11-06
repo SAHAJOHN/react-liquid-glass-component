@@ -4,6 +4,7 @@ import {
   externalSiblingsAvoidRegion,
   getOverscroll,
   glassSamplingRegion,
+  glassSamplingRegions,
   hasFlatElasticBackground,
 } from '../scene/continuity'
 import { GLASS_STUDIO_DEFAULTS } from '../studio-props'
@@ -20,6 +21,17 @@ const baseline: ElasticGeometry = {
 }
 
 describe('elastic scene safety', () => {
+  it('keeps distant pane sampling areas separate while including the total optical apron', () => {
+    const studio = { ...GLASS_STUDIO_DEFAULTS, refDistance: 0, blurRadius: 0, shadowFactor: 0 }
+    const panes = [
+      { rect: { x: 20, y: 20, width: 200, height: 60 }, studio },
+      { rect: { x: 20, y: 600, width: 200, height: 60 }, studio },
+    ]
+    const regions = glassSamplingRegions(panes, { width: 400, height: 800, pixelRatio: 2 })
+    expect(regions).toHaveLength(2)
+    expect(regions![0]!.y + regions![0]!.height).toBeLessThan(regions![1]!.y)
+    expect(regions![0]!.y).toBeLessThan(panes[0]!.rect.y)
+  })
   afterEach(() => {
     document.body.replaceChildren()
     vi.restoreAllMocks()
@@ -30,6 +42,49 @@ describe('elastic scene safety', () => {
     expect(canExpandElasticScene(baseline, moved, getOverscroll(0, 450, 0, 400))).toBe(true)
     expect(canExpandElasticScene(baseline, baseline, getOverscroll(0, -80, 0, 400))).toBe(true)
     expect(canExpandElasticScene(baseline, baseline, getOverscroll(-20, 0, 0, 400))).toBe(true)
+  })
+
+  it('validates every pane during elastic scrolling and rejects split movement or replacement', () => {
+    const first = document.createElement('div')
+    const second = document.createElement('div')
+    const panes = [
+      { element: first, rect: baseline.pane },
+      { element: second, rect: { x: 20, y: 80, width: 360, height: 150 } },
+    ]
+    const before = { ...baseline, panes }
+    const bounce = getOverscroll(0, -80, 0, 400)
+    const moved = {
+      ...baseline,
+      pane: { ...baseline.pane, y: baseline.pane.y + 40 },
+      panes: panes.map(({ element, rect }) => ({ element, rect: { ...rect, y: rect.y + 40 } })),
+    }
+    expect(canExpandElasticScene(before, moved, bounce)).toBe(true)
+    expect(
+      canExpandElasticScene(
+        before,
+        {
+          ...moved,
+          panes: [
+            moved.panes[0]!,
+            { ...moved.panes[1]!, rect: { ...moved.panes[1]!.rect, y: 160 } },
+          ],
+        },
+        bounce
+      )
+    ).toBe(false)
+    expect(
+      canExpandElasticScene(
+        before,
+        {
+          ...moved,
+          panes: [moved.panes[0]!, { ...moved.panes[1]!, element: document.createElement('div') }],
+        },
+        bounce
+      )
+    ).toBe(false)
+    expect(
+      canExpandElasticScene(before, { ...moved, panes: moved.panes.slice(0, 1) }, bounce)
+    ).toBe(false)
   })
 
   it('rejects partial hosts, changed layout, unrelated pane movement and missing baselines', () => {

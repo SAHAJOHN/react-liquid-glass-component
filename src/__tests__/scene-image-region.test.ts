@@ -21,6 +21,7 @@ function fixture() {
   const root = document.createElement('div')
   const image = document.createElement('img')
   image.src = '/example.png'
+  Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 40 })
   root.append(image)
   const defaults = {
     display: 'block',
@@ -120,6 +121,145 @@ it('reports the general pseudo failure and its sanitized detail', () => {
 })
 
 describe('off-region image deferral', () => {
+  it('keeps the box visible without painting an image until its DOM pixels are available', () => {
+    const { root, image, imageRect, loadingImage, paint, compiler } = fixture()
+    imageRect.mockReturnValue(new DOMRect(100, 310, 50, 50))
+    Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 0 })
+
+    const loading = compiler.compile(root, new Map(), frame, 'white', region)
+    expect(loading.issues).toEqual([])
+    expect(loading.samplingWatches).toContainEqual({ element: image, relation: 'inside' })
+    expect(loading.scene.items.filter((item) => item.kind === 'sprite')).toHaveLength(2)
+    expect(paint).not.toHaveBeenCalled()
+
+    // A speculative decode does not mean the native DOM image is painted.
+    loadingImage.dispatchEvent(new Event('load'))
+    const waitingForDom = compiler.compile(root, new Map(), frame, 'white', region)
+    expect(waitingForDom.issues).toEqual([])
+    expect(paint).not.toHaveBeenCalled()
+
+    Object.defineProperties(image, {
+      complete: { configurable: true, value: true },
+      naturalWidth: { configurable: true, value: 40 },
+    })
+    const ready = compiler.compile(root, new Map(), frame, 'white', region)
+    expect(ready.issues).toEqual([])
+    expect(paint).toHaveBeenCalledWith(
+      image,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.anything(),
+      expect.anything()
+    )
+    compiler.dispose()
+  })
+
+  it('does not paint the previous image after its source changes to an undecoded image', () => {
+    const { root, image, imageRect, paint, compiler } = fixture()
+    imageRect.mockReturnValue(new DOMRect(100, 310, 50, 50))
+    Object.defineProperty(image, 'complete', { configurable: true, value: true })
+    expect(compiler.compile(root, new Map(), frame, 'white', region).issues).toEqual([])
+    expect(paint).toHaveBeenCalledOnce()
+
+    image.src = '/replacement.png'
+    Object.defineProperties(image, {
+      complete: { configurable: true, value: false },
+      naturalWidth: { configurable: true, value: 0 },
+    })
+    paint.mockClear()
+    const loading = compiler.compile(root, new Map(), frame, 'white', region)
+    expect(loading.issues).toEqual([])
+    expect(paint).not.toHaveBeenCalled()
+    compiler.dispose()
+  })
+
+  it('still waits when an incomplete DOM image has decoded dimensions', () => {
+    const { root, imageRect, compiler } = fixture()
+    imageRect.mockReturnValue(new DOMRect(100, 310, 50, 50))
+    expect(compiler.compile(root, new Map(), frame, 'white', region).issues).toContain(
+      'Image is loading'
+    )
+    compiler.dispose()
+  })
+
+  it('reports an error from the capture request while the DOM image is still undecoded', () => {
+    const { root, image, imageRect, loadingImage, compiler } = fixture()
+    imageRect.mockReturnValue(new DOMRect(100, 310, 50, 50))
+    Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 0 })
+    expect(compiler.compile(root, new Map(), frame, 'white', region).issues).toEqual([])
+    loadingImage.dispatchEvent(new Event('error'))
+    expect(compiler.compile(root, new Map(), frame, 'white', region).issues).toContain(
+      'Image could not be read; check its URL and CORS permission'
+    )
+    compiler.dispose()
+  })
+
+  it('defers bounded mask and backdrop effects on an off-region leaf until it enters', () => {
+    const { root, image, imageStyle, compiler } = fixture()
+    image.remove()
+    const effect = document.createElement('div')
+    root.append(effect)
+    const effectRect = vi.spyOn(effect, 'getBoundingClientRect')
+    effectRect.mockReturnValue(new DOMRect(100, 20, 50, 50))
+    imageStyle.backdropFilter = 'blur(12px)'
+    imageStyle.maskImage = 'linear-gradient(black, transparent)'
+
+    const outside = compiler.compile(root, new Map(), frame, 'white', region)
+    expect(outside.issues).toEqual([])
+    expect(outside.samplingWatches).toEqual([{ element: effect, relation: 'outside' }])
+
+    effectRect.mockReturnValue(new DOMRect(100, 310, 50, 50))
+    const inside = compiler.compile(root, new Map(), frame, 'white', region)
+    expect(inside.issues).toContain('CSS filters outside LiquidGlass require native HTML rendering')
+    expect(inside.issues).toContain('CSS masks and clip paths require native HTML rendering')
+    compiler.dispose()
+  })
+
+  it('does not defer an off-region effect whose descendant paint is unbounded', () => {
+    const { root, image, imageStyle, compiler } = fixture()
+    imageStyle.backdropFilter = 'blur(12px)'
+    imageStyle.maskImage = 'linear-gradient(black, transparent)'
+    image.append(document.createElement('span'))
+
+    const result = compiler.compile(root, new Map(), frame, 'white', region)
+    expect(result.issues).not.toContain(
+      'CSS filters outside LiquidGlass require native HTML rendering'
+    )
+    expect(result.issues).toContain('CSS masks and clip paths require native HTML rendering')
+    compiler.dispose()
+  })
+
+  it('defers only an off-region backdrop effect and still validates its pseudo-elements', () => {
+    const { root, image, imageStyle, compiler } = fixture()
+    image.remove()
+    const effect = document.createElement('div')
+    const child = document.createElement('span')
+    effect.append(child)
+    root.append(effect)
+    vi.spyOn(effect, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 20, 50, 50))
+    vi.spyOn(child, 'getBoundingClientRect').mockReturnValue(new DOMRect(105, 25, 20, 20))
+    imageStyle.backdropFilter = 'blur(12px)'
+    vi.spyOn(pseudoModule, 'measurePseudoBox').mockImplementation((element) =>
+      element === effect
+        ? {
+            status: 'unsupported',
+            reason: 'Pseudo-element effects require native HTML rendering',
+            detail: 'PSEUDO_FILTER',
+          }
+        : { status: 'none' }
+    )
+
+    const result = compiler.compile(root, new Map(), frame, 'white', region)
+    expect(result.issues).not.toContain(
+      'CSS filters outside LiquidGlass require native HTML rendering'
+    )
+    expect(result.issues).toContain('Pseudo-element effects require native HTML rendering')
+    expect(result.issues).toContain('PSEUDO_FILTER')
+    expect(result.samplingWatches).toContainEqual({ element: effect, relation: 'outside' })
+    compiler.dispose()
+  })
+
   it('starts loading outside the region and reports pending as soon as the image enters', () => {
     const { root, image, imageRect, loadingImage, imageConstructor, paint, compiler } = fixture()
     const outside = compiler.compile(root, new Map(), frame, 'white', region)

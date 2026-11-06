@@ -38,15 +38,17 @@ describe('glass-only presentation clip', () => {
     }
   })
 
-  it('rejects disjoint panes and rectangular children that extend through a rounded corner', () => {
+  it('clips disjoint or partially overlapping panes without exposing the gap', () => {
     const outer = pane(20, 700, 360, 70, 35)
-    expect(getGlassOnlyClip([outer, pane(0, 600, 15, 15, 0)], viewport, host)).toEqual({
-      status: 'fallback',
-      reason: 'Glass-only presentation requires all panes inside one enclosing pane.',
-    })
-    expect(getGlassOnlyClip([outer, pane(20, 700, 40, 40, 0)], viewport, host).status).toBe(
-      'fallback'
-    )
+    const disjoint = getGlassOnlyClip([outer, pane(0, 600, 15, 15, 0)], viewport, host)
+    expect(disjoint.status).toBe('ready')
+    if (disjoint.status === 'ready') {
+      expect(disjoint.clipPath).toContain('M 0 600 H 15 V 615 H 0 Z')
+      expect(disjoint.clipPath.match(/M /g)).toHaveLength(2)
+    }
+    const overlap = getGlassOnlyClip([outer, pane(20, 700, 40, 40, 0)], viewport, host)
+    expect(overlap.status).toBe('ready')
+    if (overlap.status === 'ready') expect(overlap.clipPath.match(/M /g)).toHaveLength(2)
   })
 
   it('rejects missing, invalid, unsupported, or out-of-bounds geometry', () => {

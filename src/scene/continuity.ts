@@ -26,6 +26,8 @@ export interface Overscroll {
 export interface ElasticGeometry {
   host: SceneRect
   pane: SceneRect
+  /** Stable identities and viewport bounds for every visible pane. */
+  panes?: readonly { element: Element; rect: SceneRect }[]
   documentWidth: number
   documentHeight: number
   viewportWidth: number
@@ -103,6 +105,24 @@ export function glassSamplingRegion(
     width: right - left + 2 * totalApron,
     height: bottom - top + 2 * totalApron,
   }
+}
+
+/** Separate conservative optical regions retain the gap between distant panes. */
+export function glassSamplingRegions(
+  panes: readonly SamplingPane[],
+  viewport: { width: number; height: number; pixelRatio: number }
+): SceneRect[] | undefined {
+  const combined = glassSamplingRegion(panes, viewport)
+  if (!combined) return undefined
+  const left = Math.min(...panes.map(({ rect }) => rect.x))
+  const apron = left - combined.x
+  if (!Number.isFinite(apron) || apron < 0) return undefined
+  return panes.map(({ rect }) => ({
+    x: rect.x - apron,
+    y: rect.y - apron,
+    width: rect.width + apron * 2,
+    height: rect.height + apron * 2,
+  }))
 }
 
 const nonPaintingTags = new Set(['SCRIPT', 'STYLE', 'LINK', 'META', 'NOSCRIPT', 'TEMPLATE'])
@@ -314,6 +334,34 @@ export function canExpandElasticScene(
     return false
   const horizontalExcursion = Math.max(overscroll.left, overscroll.right)
   const verticalExcursion = Math.max(overscroll.top, overscroll.bottom)
+  if (Boolean(previous.panes) !== Boolean(current.panes)) return false
+  if (previous.panes && current.panes) {
+    if (previous.panes.length !== current.panes.length) return false
+    const deltaX = current.pane.x - previous.pane.x
+    const deltaY = current.pane.y - previous.pane.y
+    for (let i = 0; i < previous.panes.length; i += 1) {
+      const before = previous.panes[i]
+      const after = current.panes[i]
+      if (!before || !after || before.element !== after.element) return false
+      if (
+        ![
+          before.rect.x,
+          before.rect.y,
+          before.rect.width,
+          before.rect.height,
+          after.rect.x,
+          after.rect.y,
+          after.rect.width,
+          after.rect.height,
+        ].every(Number.isFinite) ||
+        !near(before.rect.width, after.rect.width) ||
+        !near(before.rect.height, after.rect.height) ||
+        !near(after.rect.x - before.rect.x, deltaX) ||
+        !near(after.rect.y - before.rect.y, deltaY)
+      )
+        return false
+    }
+  }
   return (
     Math.abs(previous.pane.x - current.pane.x) <= horizontalExcursion + GEOMETRY_TOLERANCE &&
     Math.abs(previous.pane.y - current.pane.y) <= verticalExcursion + GEOMETRY_TOLERANCE

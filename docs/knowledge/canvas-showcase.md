@@ -22,16 +22,33 @@ default. `convexity` is optional. `shapeWidth` and `shapeHeight` are sizing alia
 
 The scene compiler supports text, inline styles, colors, gradients, borders, images, SVG,
 video, and canvas elements. It tracks layout, content, fonts, media, scroll, and supported
-translate, scale, and opacity animation.
+translate, scale, and opacity animation. It also handles identity `blur(0px)`, supported 2D
+translations, one alpha-gradient backdrop mask, uniform-radius backdrop-blur cards, and static
+opacity groups when their geometry is safe.
 
 The renderer owns one WebGL context and one composed frame. It reuses render targets and blur
 kernels between frames. The scheduler wakes for scrolling, media, animation, resize, and
 content changes, then stops when the scene is idle.
 
-Unsupported CSS and DOM includes arbitrary CSS filters and shadows, generated pseudo-content,
-masks, rotation and perspective, iframes, Shadow DOM, complex nested clipping, and active
-native editing controls. The original HTML stays visible on fallback. `onStatusChange` reports
-the reasons. Cross-origin media needs CORS.
+Glass-only scenes with a fixed `canvasContainer` can retain a bounded vertical scroll capture.
+Within that capture, document geometry follows the current scroll offset without another DOM
+compile. Canvas and video pixels still update. Changed content, styles, viewport or pane bounds,
+document animations, nested scrolling, and unsupported geometry return to normal compilation.
+Motion within a validated fixed navigation refreshes that subtree while retaining the document
+paint, provided its new optical bounds remain inside the capture and its paint remains last.
+Extra content captured ahead of the pane cannot introduce a fallback: a failed speculative
+capture is discarded and the current pane is compiled normally. The renderer limits work to the
+current optical source and its backdrop dependencies, including when the retained capture is wider.
+
+Unsupported CSS and DOM includes arbitrary CSS filters, unsupported shadow/group combinations,
+generated pseudo-content, luminance or layered masks, rotation and perspective, iframes, Shadow
+DOM, complex nested clipping, nested opacity, unsupported glass or backdrop opacity groups, and active native editing
+controls. The original HTML stays visible on fallback. `onStatusChange` reports the reasons.
+Backdrop blur is fail-closed when its Gaussian sampling footprint reaches unavailable viewport
+pixels, and cross-origin media needs CORS.
+
+An animated 2D canvas inside an opacity group needs `data-liquid-glass-canvas="2d"` on the canvas.
+Only declare this for a 2D context; an unmarked canvas in such a group remains on the native path.
 
 ## ScrollEdge in the demo
 
