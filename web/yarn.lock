@@ -2784,10 +2784,10 @@ react-is@^16.13.1, react-is@^16.7.0:
   resolved "https://registry.yarnpkg.com/react-is/-/react-is-16.13.1.tgz#789729a4dc36de2999dc156dd6c1d9c18cea56a4"
   integrity sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==
 
-react-liquid-glass-component@0.4.8:
-  version "0.4.8"
-  resolved "https://registry.npmjs.org/react-liquid-glass-component/-/react-liquid-glass-component-0.4.8.tgz#f3ea903dd424908bee0e1f3cd7969bf5c1f7b864"
-  integrity sha512-v7wXVaNxI0QW+gpAv4/c+oaHlAWYFqXJEOzEP3D4XbdUXM6jPi2iiTBomOX6ZOjZ3B6+lIG68S6/aFTXc10sGA==
+react-liquid-glass-component@0.4.9:
+  version "0.4.9"
+  resolved "https://registry.npmjs.org/react-liquid-glass-component/-/react-liquid-glass-component-0.4.9.tgz#51dc4a9a7486e480567df176d971df4613d29cb1"
+  integrity sha512-Iuvvbp5NXdlPWXEred9ZxFwITOzWyqPaHsxLCQEqg7/7bf1LgjqaSMlqb0ZVN+0wfTIxUjYfBHFDvViyaksfZQ==
   dependencies:
     html2canvas "^1.4.1"
 

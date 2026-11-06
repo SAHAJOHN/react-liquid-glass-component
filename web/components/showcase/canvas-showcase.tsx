@@ -524,8 +524,8 @@ export default function CanvasShowcase() {
               <CopyControl text={installCommand} label="install command" />
             </div>
             <p className="canvas-showcase__install-note">
-              The current npm version, 0.4.8, also needs styled-components. The next release
-              includes CSS automatically and supports an optional shared stylesheet.
+              Styles are included automatically. To share one stylesheet, import styles.css and
+              set includeStyles to false.
             </p>
           </LiquidGlass>
 

@@ -252,8 +252,7 @@ export function DemoPanel() {
             </h2>
             <p className="demo__hint">
               Copy settings includes every material value. Place your page and glass in the same
-              scene. The upcoming CSS-only release includes styles automatically; npm version 0.4.8
-              still requires styled-components.
+              scene. Styles are included automatically.
             </p>
             <pre className="demo__code">
               <code>{usageCode}</code>

@@ -17,9 +17,7 @@ Sites using the library include [KA Technology](https://dev.kacorptech.com/) and
 
 ## Install
 
-> The CSS changes in this README are available in the current source but have not been published yet. npm version `0.4.8` still requires `styled-components`.
-
-After the next release, install the package with React 18 or newer and React DOM 18 or newer:
+Install the package with React 18 or newer and React DOM 18 or newer:
 
 ```bash
 npm install react-liquid-glass-component

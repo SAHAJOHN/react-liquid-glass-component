@@ -22,6 +22,6 @@ The site uses Plus Jakarta Sans and `styled-components` for its own UI. Keep its
 
 ## Test local library changes
 
-The demo normally uses the published version pinned in `package.json`. The source migration that removes the library's `styled-components` peer is not yet in npm `0.4.8`. To test it before release, build the package from the repository root and use a temporary local package installation in the demo. Restore the published dependency and `yarn.lock` before deploying.
+The demo normally uses the published version pinned in `package.json`. To test local library changes, build the package from the repository root and use a temporary local package installation in the demo. Restore the published dependency and `yarn.lock` before deploying.
 
 Import library components through `components/liquid-glass-client.tsx` so they stay behind a client boundary. See the [package README](../README.md) for examples and the [setup guide](../docs/knowledge/setup.md) for the local workflow.
