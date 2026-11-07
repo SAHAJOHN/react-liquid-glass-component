@@ -97,7 +97,35 @@ export function FixedNavigation() {
 
 The container must be inside the scene, use `position: fixed`, and contain every managed pane. It must not be scaled, and its ancestors must not use transforms, perspective, or filters. Passing `null` waits for the element to mount.
 
-Scene rendering supports common text, images, SVG, video, canvas, backgrounds, borders, and layout changes. Some CSS and DOM combinations cannot be captured safely. In that case the scene keeps the original HTML visible and reports `fallback` through `onStatusChange`; the native fallback does not refract the background. Cross-origin media needs CORS permission. See [scene support and limitations](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/api.md#liquidglassscene) for details.
+For a fixed navigation bar whose logo and controls must stay browser-sharp, opt into the native foreground mode. Keep the glass pane in the container, and mark only the controls that should remain HTML above the canvas:
+
+```tsx
+<LiquidGlassScene
+  presentation="glass-only"
+  canvasContainer={navigation}
+  foreground="native"
+>
+  <main>Page content</main>
+  <nav ref={setNavigation} style={{ position: 'fixed', inset: '16px 16px auto', height: 64 }}>
+    <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0} style={{ position: 'absolute', inset: 0 }} />
+    <a data-liquid-glass-foreground href="#contact" style={{ position: 'relative', zIndex: 1 }}>Contact</a>
+  </nav>
+</LiquidGlassScene>
+```
+
+`foreground="native"` is opt-in and only applies to a glass-only scene with a `canvasContainer`. The marked subtree stays as normal HTML above the scene canvas, so text, logos, links, buttons, focus rings, and pointer interaction are not rasterized into the canvas. Mark the foreground controls only. Do not put the marker on the glass pane or on page content that should be refracted. Keep the container shell transparent and place marked controls above the canvas and every managed pane using CSS stacking; unsupported content still follows the normal native fallback path.
+
+Scene rendering supports common text, images, SVG, video, canvas, backgrounds, borders, and layout changes. Some CSS and DOM combinations cannot be captured safely. In that case the scene keeps the original HTML visible and reports `fallback` through `onStatusChange`; the native fallback does not refract the background. Cross-origin media needs CORS permission. See the [scene support and limitations](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/api.md#liquidglassscene) for the supported single-leaf text effects, color-only image filter, bounded blurred image, and regional deferral rules.
+
+Focused text inputs (`text`, `search`, `email`, `url`, and `tel`) and textareas can stay native while the scene remains 3D when their paint bounds, including focus effects, are proven outside every expanded glass sampling region. If an active control or its focus ring reaches a glass region, or its bounds cannot be proven, the scene keeps native HTML fallback so the browser can render the caret, selection, and IME correctly. Password and number inputs remain native fallback paths.
+
+The renderer is conservative around effects that can paint outside an element's bounds. It may defer
+a provably bounded subtree while it is away from every glass pane, but it keeps native HTML when an
+effect reaches the pane and cannot be reproduced safely. Supported special cases include one direct
+text node with a single linear gradient, one text shadow or stroke, an isolated
+`brightness(0) invert(1)` image, and a single clipped image with `filter: blur(...)`. Nested text,
+unknown filter chains, transformed or escaping content, tainted images, and failed loads continue
+through the native fallback path.
 
 ### Main scene options
 
@@ -107,6 +135,7 @@ Scene rendering supports common text, images, SVG, video, canvas, backgrounds, b
 | `maxPixelRatio` | `2` | Limits canvas backing resolution. |
 | `presentation` | `'scene'` | Choose `'scene'` or `'glass-only'`. |
 | `canvasContainer` | `undefined` | Fixed container for a glass-only canvas. |
+| `foreground` | `'canvas'` | Set to `'native'` with `presentation="glass-only"` to keep marked controls as sharp HTML above the canvas. |
 | `onStatusChange` | `undefined` | Receives `ready`, `pending`, or `fallback`. |
 | `includeStyles` | `true` | Include the scene's CSS in rendered markup. |
 

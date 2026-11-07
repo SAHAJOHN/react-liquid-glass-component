@@ -91,7 +91,8 @@ function noFixedContainingAncestor(
 export function createStackingHoistPlan(
   root: HTMLElement,
   createsContext: (element: Element, style: CSSStyleDeclaration) => boolean,
-  readStyle: typeof getComputedStyle = getComputedStyle
+  readStyle: typeof getComputedStyle = getComputedStyle,
+  shouldSkip: (element: Element) => boolean = () => false
 ): StackingHoistPlan {
   const candidates = new Map<Element, Placement[]>()
   const unsafeOwners = new Set<Element>()
@@ -100,6 +101,7 @@ export function createStackingHoistPlan(
 
   const visit = (element: Element, owner: Element) => {
     if (
+      shouldSkip(element) ||
       omitted.has(element.tagName) ||
       element.hasAttribute('data-liquid-glass-scene-canvas') ||
       element.classList.contains('liquid-glass-scene__canvas') ||

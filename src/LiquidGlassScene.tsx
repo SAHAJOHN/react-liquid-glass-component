@@ -28,6 +28,8 @@ export interface LiquidGlassSceneProps extends HTMLAttributes<HTMLDivElement> {
   presentation?: 'scene' | 'glass-only'
   /** Fixed container enclosing every pane, used to keep the canvas with native controls. */
   canvasContainer?: HTMLElement | null
+  /** Keep marked foreground subtrees as native HTML above an anchored glass-only canvas. */
+  foreground?: 'canvas' | 'native'
   /** Reports unsupported content or GPU failure without hiding the original HTML. */
   onStatusChange?: (state: LiquidGlassSceneStatus) => void
 }
@@ -44,6 +46,7 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
       maxPixelRatio = 2,
       presentation = 'scene',
       canvasContainer,
+      foreground = 'canvas',
       onStatusChange,
       ...props
     } = rawProps as LiquidGlassSceneProps & { as?: ElementType }
@@ -88,9 +91,12 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
       maxPixelRatio,
       presentation,
       canvasContainer: canvasContainer ?? null,
+      foreground,
       onStatusChange,
     })
 
+    const nativeForeground =
+      foreground === 'native' && presentation === 'glass-only' && !!canvasContainer
     const output = (
       <canvas
         ref={canvas}
@@ -101,7 +107,12 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
         aria-hidden="true"
         style={
           canvasContainer
-            ? { position: 'absolute', zIndex: 2147483647, pointerEvents: 'none', opacity: 0 }
+            ? {
+                position: 'absolute',
+                zIndex: nativeForeground ? 0 : 2147483647,
+                pointerEvents: 'none',
+                opacity: 0,
+              }
             : undefined
         }
       />
@@ -114,6 +125,7 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
           ref={setRoot}
           className={`liquid-glass-scene-root ${className}`.trim()}
           data-liquid-glass-scene=""
+          data-liquid-glass-foreground-mode={nativeForeground ? 'native' : undefined}
         >
           <div ref={content} className="liquid-glass-scene__content">
             {children}

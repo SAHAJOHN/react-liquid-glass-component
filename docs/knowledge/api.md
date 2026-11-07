@@ -3,7 +3,7 @@ title: 'API Reference'
 project: 'react-liquid-glass-component'
 type: 'reference'
 status: '✅ Active'
-last_updated: '2026-11-02'
+last_updated: '2026-11-08'
 ai_context: 'Complete API reference for LiquidGlass, LiquidGlassScene, Studio material props, and ScrollEdge.'
 related:
   - 'architecture'
@@ -160,6 +160,7 @@ and canvas content from its children. Consumers do not create a canvas or add ma
 | `presentation`                | `'scene' \| 'glass-only'` |              `'scene'` | Canvas coverage; `glass-only` retains native content outside the pane. |
 | `onStatusChange`              | `(state) => void` |                       — | Receives `ready`, `pending`, or `fallback` with reasons. |
 | `canvasContainer`             | `HTMLElement \| null` | — | In `glass-only`, mounts the canvas inside a fixed container that contains every managed pane. |
+| `foreground`                  | `'canvas' \| 'native'` | `'canvas'` | In `glass-only` with `canvasContainer`, keeps marked container descendants as native HTML above the canvas. |
 | `includeStyles`               | `boolean`             |                  `true` | Render the scene's embedded static style tag. Set `false` when the package stylesheet is loaded. |
 | `children`, `ref`, HTML attrs | React/HTML types  |                       — | Normal React content and root attributes.             |
 
@@ -179,11 +180,36 @@ export function SceneWithStatus() {
 
 Unsupported CSS/DOM keeps original HTML visible and reports fallback reasons. Current limits
 include unsupported CSS effects, generated pseudo-content, rotation/perspective, iframes, Shadow
-DOM, deeply nested clipping and active native editing controls. A single `brightness()` filter
+DOM, deeply nested clipping and active native editing controls when their paint cannot be proven
+outside the glass sampling regions. Focused `text`, `search`, `email`, `url`, and `tel` inputs plus
+textareas remain native and do not force a scene fallback when their bounds, focus effects, and
+ancestors are proven outside every expanded sampling region. If the control or focus effect
+intersects a glass region, or the proof is incomplete, the scene keeps native fallback so the
+browser owns caret, selection, and IME rendering. Password and number inputs remain fallback paths.
+A single `brightness()` filter
 is supported when its value darkens from `0` through `1`; `blur(0px)` is treated as an identity
 while preserving containing-block semantics. Pure 2D translations are supported on eligible
 positioned elements and pseudo-elements, while rotation, individual scaling and 3D transforms remain
 unsupported.
+
+The scene can also defer a bounded unsupported subtree while it is outside every glass sampling
+region. This keeps the native page visible and avoids compiling pixels that cannot affect the pane.
+The proof is conservative: generated content, media, box shadows, unknown filter functions, fixed
+backgrounds, transformed subtrees, escaping descendants, and unmanaged clipping keep the native
+fallback. When the effect or its halo reaches a glass region, the scene must render it or report
+fallback; it never hides the source content just to keep WebGL active.
+
+The following narrow effects have dedicated raster paths when their structure is provable:
+
+- A single direct text node with one linear `background-clip: text` gradient.
+- A single direct text node with one supported `text-shadow` or `-webkit-text-stroke`.
+- An isolated image using exactly `brightness(0) invert(1)`.
+- An isolated element with one image child and `filter: blur(...)`, a translation-only geometry,
+  and a bounded overflow/radius clip. The image must pass the normal same-origin or CORS checks.
+
+These paths use bounded canvases and caches. Complex text trees, multiple effects, unsupported
+filter chains, arbitrary font overhang, scaled or rotated geometry, tainted images, and failed
+asset loads remain native HTML and report their reason through `onStatusChange`.
 
 Managed panes use native backdrop blur during fallback. The fallback approximates Studio `tint`
 and `blurRadius` when the browser supports them; it does not refract the background.
@@ -251,6 +277,37 @@ ancestors must not use `transform`, `perspective`, or `filter`; every
 registered pane must be inside the container. Unsupported geometry reports `fallback` and
 keeps native HTML visible. Omitting the prop keeps the default canvas placement.
 Passing `null` waits for the container to mount before starting the scene.
+
+### Native foreground controls
+
+Set `foreground="native"` when a fixed glass container also contains text, logos, links, or
+buttons that must remain crisp and interactive:
+
+```tsx
+const [navigation, setNavigation] = useState<HTMLElement | null>(null)
+
+return (
+  <LiquidGlassScene
+    presentation="glass-only"
+    canvasContainer={navigation}
+    foreground="native"
+  >
+    <main>Page content</main>
+    <nav ref={setNavigation} style={{ position: 'fixed', inset: '16px 16px auto', height: 64 }}>
+      <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0} style={{ position: 'absolute', inset: 0 }} />
+      <a data-liquid-glass-foreground href="#contact" style={{ position: 'relative', zIndex: 1 }}>Contact</a>
+    </nav>
+  </LiquidGlassScene>
+)
+```
+
+In this mode, descendants marked with `data-liquid-glass-foreground` stay in the native DOM
+layer above the scene canvas. The marker is intended for the foreground controls only. Do not
+mark a `LiquidGlass` pane, its wrapper, or background content, because marked content is omitted
+from the canvas capture and will not be refracted as scene pixels. Keep the fixed container transparent where the canvas must show through, and use CSS stacking
+to place the marked controls above the canvas and every managed pane. The option does not
+change the default `foreground` behavior, and it does not remove native HTML fallback when the
+scene cannot safely capture other content.
 
 ## `ScrollEdge`
 

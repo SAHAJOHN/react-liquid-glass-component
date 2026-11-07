@@ -1,6 +1,6 @@
 {
   "name": "react-liquid-glass-component",
-  "version": "0.4.9",
+  "version": "0.4.14",
   "description": "Liquid glass effect for React using SVG filters with chromatic aberration and frosted blur.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -26,7 +26,9 @@
     "THIRD_PARTY_NOTICES.md",
     "LICENSE"
   ],
-  "sideEffects": ["**/*.css"],
+  "sideEffects": [
+    "**/*.css"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/SAHAJOHN/react-liquid-glass-component.git"

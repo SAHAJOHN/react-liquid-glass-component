@@ -14,6 +14,8 @@ export interface BackdropRelevanceInput {
   /** Styles must expose current values; layout measurements must be fresh for each compile. */
   readStyle: StyleReader
   readRect: RectReader
+  /** Subtrees painted natively above the output canvas contribute no backdrop. */
+  shouldSkip?: (element: Element) => boolean
 }
 
 export interface BackdropRelevanceResult {
@@ -169,6 +171,7 @@ export function expandBackdropRelevance({
   frame,
   readStyle,
   readRect,
+  shouldSkip,
 }: BackdropRelevanceInput): BackdropRelevanceResult {
   const unproven: BackdropRelevanceResult = { regions: undefined, hasBackdrop: true }
   if (
@@ -190,6 +193,7 @@ export function expandBackdropRelevance({
   try {
     const visit = (element: Element, transformed: boolean): boolean => {
       if (
+        shouldSkip?.(element) ||
         omitted.has(element.tagName) ||
         element.hasAttribute('data-liquid-glass-scene-canvas') ||
         element.classList.contains('liquid-glass-scene__canvas')

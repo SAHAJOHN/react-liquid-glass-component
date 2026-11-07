@@ -189,24 +189,48 @@ export function createAssetCache(invalidate: () => void) {
   }
 }
 
+export interface TextPaintOptions {
+  insets?: { left: number; top: number; right: number; bottom: number }
+  fill?: string
+  stroke?: { color: string; width: number }
+  shadow?: { color: string; x: number; y: number; blur: number }
+  /** Reject a bitmap if any actual glyph, stroke, or shadow would be clipped. */
+  verifyBounds?: boolean
+}
+
 export function paintText(
   node: Text,
   bounds: DOMRect,
   style: CSSStyleDeclaration,
   ratio: number,
   scaleX: number,
-  scaleY: number
+  scaleY: number,
+  options: TextPaintOptions = {}
 ): HTMLCanvasElement {
   const width = bounds.width / scaleX,
     height = bounds.height / scaleY
+  const insets = options.insets ?? { left: 0, top: 0, right: 0, bottom: 0 }
   const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.ceil(width * ratio))
-  canvas.height = Math.max(1, Math.ceil(height * ratio))
+  canvas.width = Math.max(1, Math.ceil((width + insets.left + insets.right) * ratio))
+  canvas.height = Math.max(1, Math.ceil((height + insets.top + insets.bottom) * ratio))
   const context = canvas.getContext('2d')
   if (!context) throw new Error('Text canvas unavailable')
   context.scale(ratio, ratio)
+  if (insets.left || insets.top) context.translate(insets.left, insets.top)
   context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
-  context.fillStyle = style.color
+  context.fillStyle = options.fill ?? style.color
+  if (options.stroke) {
+    context.strokeStyle = options.stroke.color
+    context.lineWidth = options.stroke.width
+  }
+  if (options.shadow) {
+    context.shadowColor = options.shadow.color
+    // Shadow offsets and blur are measured in backing-store pixels and are
+    // not transformed with the text coordinates by Canvas 2D.
+    context.shadowOffsetX = options.shadow.x * ratio
+    context.shadowOffsetY = options.shadow.y * ratio
+    context.shadowBlur = options.shadow.blur * ratio
+  }
   context.textBaseline = 'alphabetic'
   if ('letterSpacing' in context)
     context.letterSpacing = style.letterSpacing === 'normal' ? '0px' : style.letterSpacing
@@ -234,7 +258,37 @@ export function paintText(
           : line.text
     const x = (line.x - bounds.left) / scaleX,
       y = (line.y - bounds.top) / scaleY + ascent
+    if (options.verifyBounds) {
+      const ink = context.measureText(text)
+      const values = [
+        ink.actualBoundingBoxLeft,
+        ink.actualBoundingBoxRight,
+        ink.actualBoundingBoxAscent,
+        ink.actualBoundingBoxDescent,
+      ]
+      if (!values.every(Number.isFinite)) throw new Error('Text ink bounds unavailable')
+      const stroke = (options.stroke?.width ?? 0) / 2
+      const left = x - ink.actualBoundingBoxLeft - stroke
+      const right = x + ink.actualBoundingBoxRight + stroke
+      const top = y - ink.actualBoundingBoxAscent - stroke
+      const bottom = y + ink.actualBoundingBoxDescent + stroke
+      const shadow = options.shadow
+      const halo = shadow ? shadow.blur * 2 : 0
+      const minX = Math.min(left, shadow ? left + shadow.x - halo : left)
+      const maxX = Math.max(right, shadow ? right + shadow.x + halo : right)
+      const minY = Math.min(top, shadow ? top + shadow.y - halo : top)
+      const maxY = Math.max(bottom, shadow ? bottom + shadow.y + halo : bottom)
+      const antialias = 1 / ratio
+      if (
+        minX < -insets.left + antialias ||
+        maxX > width + insets.right - antialias ||
+        minY < -insets.top + antialias ||
+        maxY > height + insets.bottom - antialias
+      )
+        throw new Error('Text effect exceeds the bitmap bounds')
+    }
     context.fillText(text, x, y)
+    if (options.stroke) context.strokeText(text, x, y)
     if (style.textDecorationLine.includes('underline')) {
       context.fillRect(
         x,

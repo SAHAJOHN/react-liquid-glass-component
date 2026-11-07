@@ -153,6 +153,14 @@
   --glass-managed-radius: var(--glass-base-radius);
 }
 
+/* In native-foreground mode the canvas is behind the HTML pane itself. */
+[data-liquid-glass-foreground-mode='native'][data-liquid-glass-scene-ready='true']
+  :where(.liquid-glass).liquid-glass--managed,
+[data-liquid-glass-foreground-mode='native'][data-liquid-glass-scene-pending='true']
+  :where(.liquid-glass).liquid-glass--managed {
+  background: transparent !important;
+}
+
 :where(.liquid-glass):focus-visible {
   outline: 2px solid light-dark(#007aff, #0a84ff);
   outline-offset: 2px;

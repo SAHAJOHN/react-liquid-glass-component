@@ -87,6 +87,134 @@ function rect(element: Element): SceneRect | null {
 }
 
 /**
+ * Return one element's visible viewport-space border box after intersecting
+ * ordinary ancestor overflow clips. `null` means paint can escape the box or
+ * the clip chain cannot be proven. This is not a subtree bound: callers use it
+ * one descendant at a time when checking overlap.
+ */
+export function getClippedElementPaintRect(
+  element: Element,
+  root: Element,
+  readStyle: typeof getComputedStyle = getComputedStyle
+): SceneRect | null {
+  if (!(element instanceof HTMLElement) || element === root || !root.contains(element)) return null
+  try {
+    const style = readStyle(element)
+    if (
+      element.shadowRoot ||
+      style.display === 'none' ||
+      style.display === 'contents' ||
+      (style.position === 'fixed' || style.position === 'absolute') ||
+      (element.tagName === 'DIALOG' && element.hasAttribute('open')) ||
+      element.hasAttribute('popover') ||
+      !identityFilter(style.filter) ||
+      !initial(style.backdropFilter, 'none') ||
+      !initial(style.getPropertyValue('-webkit-backdrop-filter'), 'none') ||
+      !initial(style.boxShadow, 'none') ||
+      !initial(style.textShadow, 'none') ||
+      !initial(style.outlineStyle, 'none') ||
+      !initial(style.borderImageSource, 'none') ||
+      !initial(style.clipPath, 'none') ||
+      !initial(style.maskImage, 'none') ||
+      !initial(style.getPropertyValue('-webkit-mask-image'), 'none') ||
+      !noPseudo(element, readStyle) ||
+      (document.fullscreenElement && element.contains(document.fullscreenElement))
+    )
+      return null
+
+    const bounds = rect(element)
+    if (!bounds) return null
+    const hasDirectText = Array.from(element.childNodes).some(
+      (node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim())
+    )
+    let left = bounds.x
+    let right = bounds.x + bounds.width
+    let top = bounds.y
+    let bottom = bounds.y + bounds.height
+    let clipLeft = -Infinity
+    let clipRight = Infinity
+    let clipTop = -Infinity
+    let clipBottom = Infinity
+    let hasClipX = false
+    let hasClipY = false
+    for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      const ancestorStyle = readStyle(ancestor)
+      if (
+        ancestorStyle.position === 'fixed' ||
+        ancestorStyle.position === 'absolute' ||
+        !identityFilter(ancestorStyle.filter) ||
+        !initial(ancestorStyle.backdropFilter, 'none') ||
+        !initial(ancestorStyle.getPropertyValue('-webkit-backdrop-filter'), 'none') ||
+        !initial(ancestorStyle.boxShadow, 'none') ||
+        !initial(ancestorStyle.outlineStyle, 'none') ||
+        !initial(ancestorStyle.borderImageSource, 'none')
+      )
+        return null
+      const validOverflow = ['visible', 'unset', 'hidden', 'clip', 'auto', 'scroll']
+      if (
+        !validOverflow.includes(ancestorStyle.overflowX) ||
+        !validOverflow.includes(ancestorStyle.overflowY)
+      )
+        return null
+      const clipX = !['visible', 'unset'].includes(ancestorStyle.overflowX)
+      const clipY = !['visible', 'unset'].includes(ancestorStyle.overflowY)
+      if (clipX || clipY) {
+        const clipContainers = [
+          'block',
+          'flow-root',
+          'flex',
+          'grid',
+          'inline-block',
+          'inline-flex',
+          'inline-grid',
+        ]
+        if (!clipContainers.includes(ancestorStyle.display)) return null
+        if (!clipMarginIsZero(ancestorStyle)) return null
+        const clip = rect(ancestor)
+        if (!clip) return null
+        if (clipX) {
+          hasClipX = true
+          clipLeft = Math.max(clipLeft, clip.x)
+          clipRight = Math.min(clipRight, clip.x + clip.width)
+          left = Math.max(left, clip.x)
+          right = Math.min(right, clip.x + clip.width)
+        }
+        if (clipY) {
+          hasClipY = true
+          clipTop = Math.max(clipTop, clip.y)
+          clipBottom = Math.min(clipBottom, clip.y + clip.height)
+          top = Math.max(top, clip.y)
+          bottom = Math.min(bottom, clip.y + clip.height)
+        }
+      }
+      if (ancestor === root) {
+        // A text glyph can extend beyond its element's border box. When both
+        // axes are clipped, the clip intersection itself is the conservative
+        // visible paint bound. Otherwise the glyph extent is unproven.
+        if (hasDirectText)
+          return hasClipX && hasClipY
+            ? {
+                x: clipLeft,
+                y: clipTop,
+                width: Math.max(0, clipRight - clipLeft),
+                height: Math.max(0, clipBottom - clipTop),
+              }
+            : null
+        return {
+          x: left,
+          y: top,
+          width: Math.max(0, right - left),
+          height: Math.max(0, bottom - top),
+        }
+      }
+    }
+  } catch {
+    // Unmeasurable geometry cannot disprove an overlap.
+  }
+  return null
+}
+
+/**
  * Return a conservative viewport-space paint bound for a relative element.
  * `null` means its contents or ancestor effects cannot be proven bounded.
  * Callers must recompute when layout, scrolling, or animated styles change.

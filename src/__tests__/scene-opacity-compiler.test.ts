@@ -2,11 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createSceneCompiler } from '../scene/dom-scene'
 import type * as BoxModule from '../scene/paint-box'
 import { paintBoxShadows } from '../scene/paint-shadow'
+import type * as ShadowModule from '../scene/paint-shadow'
 import * as paintContent from '../scene/paint-content'
 import { GLASS_STUDIO_DEFAULTS } from '../studio-props'
 import type { GlassOptions } from '../scene/types'
 
-vi.mock('../scene/paint-shadow', () => ({ paintBoxShadows: vi.fn() }))
+vi.mock('../scene/paint-shadow', async (importOriginal) => ({
+  ...(await importOriginal<typeof ShadowModule>()),
+  paintBoxShadows: vi.fn(),
+}))
 vi.mock('../scene/paint-box', async (importOriginal) => ({
   ...(await importOriginal<typeof BoxModule>()),
   createColorReader: () => (value: string) =>
@@ -107,12 +111,112 @@ function fixture() {
     drawing as unknown as CanvasRenderingContext2D
   )
   const compiler = createSceneCompiler(() => {})
-  return { root, button, label, rootStyle, buttonStyle, labelStyle, styles, drawing, compiler }
+  return {
+    root,
+    button,
+    label,
+    rootStyle,
+    buttonStyle,
+    labelStyle,
+    styles,
+    style,
+    drawing,
+    compiler,
+  }
 }
 
 afterEach(() => vi.restoreAllMocks())
 
 describe('opacity group compiler integration', () => {
+  it('defers an ambiguous clipped opacity group only while all of its paint is outside the glass', () => {
+    const { root, button, label, labelStyle, styles, compiler } = fixture()
+    const first = document.createElement('div')
+    const second = document.createElement('div')
+    label.replaceChildren(first, second)
+    labelStyle.overflowX = 'hidden'
+    labelStyle.overflowY = 'hidden'
+    styles.set(first, labelStyle)
+    styles.set(second, labelStyle)
+    vi.mocked(button.getBoundingClientRect).mockReturnValue(new DOMRect(30, 600, 100, 100))
+    vi.mocked(label.getBoundingClientRect).mockReturnValue(new DOMRect(40, 630, 40, 20))
+    vi.spyOn(first, 'getBoundingClientRect').mockReturnValue(new DOMRect(35, 625, 30, 30))
+    vi.spyOn(second, 'getBoundingClientRect').mockReturnValue(new DOMRect(35, 625, 30, 30))
+    const pane = { x: 0, y: 0, width: 200, height: 80 }
+
+    const outside = compiler.compile(root, new Map(), frame, 'white', pane)
+    expect(outside.issues).not.toContain(groupError)
+    expect(outside.scrollTranslationSafe).not.toBe(true)
+    expect(outside.scene.items).toHaveLength(1)
+
+    const inside = compiler.compile(root, new Map(), frame, 'white', {
+      x: 0,
+      y: 600,
+      width: 200,
+      height: 80,
+    })
+    expect(inside.issues).toContain(groupError)
+    // The outer shadow starts above the owner's border box and can reach the glass first.
+    const shadowOverlap = compiler.compile(root, new Map(), frame, 'white', {
+      x: 0,
+      y: 580,
+      width: 200,
+      height: 14,
+    })
+    expect(shadowOverlap.issues).toContain(groupError)
+    expect(compiler.compile(root, new Map(), frame, 'white').issues).toContain(groupError)
+    expect(
+      compiler.compile(root, new Map(), frame, 'white', { ...pane, width: 0 }).issues
+    ).toContain(groupError)
+    compiler.dispose()
+  })
+
+  it('does not certify scrolling an incomplete scene after deferring an opacity group', () => {
+    const { root, button, label, labelStyle, styles, style, compiler } = fixture()
+    const first = document.createElement('div')
+    const second = document.createElement('div')
+    const fixed = document.createElement('div')
+    const pane = document.createElement('div')
+    root.append(fixed)
+    fixed.append(pane)
+    document.body.append(root)
+    styles.set(fixed, style({ position: 'fixed', backgroundColor: 'transparent' }))
+    styles.set(pane, style({ backgroundColor: 'transparent' }))
+    vi.spyOn(fixed, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 200, 80))
+    vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 200, 80))
+    const options: GlassOptions = {
+      radius: 20,
+      displacement: [0, 0, 0],
+      blur: 0,
+      saturation: 1,
+      color: '#fff',
+      opacity: 1,
+      studio: { ...GLASS_STUDIO_DEFAULTS, shapeRoundness: 2, shadowFactor: 0 },
+    }
+    const region = { x: 0, y: 0, width: 200, height: 80 }
+    const compile = () =>
+      compiler.compile(root, new Map([[pane, options]]), frame, 'white', region, undefined, fixed)
+
+    // Prove the fixture is eligible for the optimization before deferring paint.
+    label.replaceChildren()
+    vi.mocked(button.getBoundingClientRect).mockReturnValue(new DOMRect(30, 600, 100, 100))
+    vi.mocked(label.getBoundingClientRect).mockReturnValue(new DOMRect(40, 630, 40, 20))
+    expect(compile().scrollTranslationSafe).toBe(true)
+
+    labelStyle.overflowX = 'hidden'
+    labelStyle.overflowY = 'hidden'
+    label.append(first, second)
+    styles.set(first, labelStyle)
+    styles.set(second, labelStyle)
+    vi.spyOn(first, 'getBoundingClientRect').mockReturnValue(new DOMRect(35, 625, 30, 30))
+    vi.spyOn(second, 'getBoundingClientRect').mockReturnValue(new DOMRect(35, 625, 30, 30))
+    const deferred = compile()
+    expect(deferred.issues).not.toContain(groupError)
+    expect(deferred.scrollTranslationSafe).not.toBe(true)
+    expect(deferred.liveGeometry).toBe(true)
+    root.remove()
+    compiler.dispose()
+  })
+
   it('keeps a fading Studio glass and its native controls in one GPU opacity group', () => {
     const { root, button, buttonStyle, labelStyle, styles, compiler } = fixture()
     buttonStyle.boxShadow = 'none'

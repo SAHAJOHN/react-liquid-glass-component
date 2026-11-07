@@ -154,17 +154,94 @@ function stops(parts: string[], extent: number): GradientStop[] | null {
   return result
 }
 
+type RadialGeometry = { cx: number; cy: number; rx: number; ry: number }
+
+/** Parse only the computed radial-gradient syntax that can be drawn faithfully. */
+function radialGeometry(prelude: string, width: number, height: number): RadialGeometry | null {
+  const at = /(?:^|\s+)at\s+/.exec(prelude)
+  const shapeText = (at ? prelude.slice(0, at.index) : prelude).trim()
+  const positionText = at ? prelude.slice(at.index + at[0].length).trim() : ''
+  if (at && !positionText) return null
+
+  let cx = width / 2
+  let cy = height / 2
+  if (positionText) {
+    const tokens = positionText.split(/\s+/)
+    const positionToken =
+      /^(?:left|right|top|bottom|center|[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:px|%)|[+-]?0(?:\.0+)?)$/i
+    if (tokens.length > 2 || tokens.some((token) => !positionToken.test(token))) return null
+    let [x = 'center', y = 'center'] = tokens
+    if (tokens.length === 1 && (x === 'top' || x === 'bottom')) [x, y] = ['center', x]
+    else if (x === 'top' || x === 'bottom' || y === 'left' || y === 'right') [x, y] = [y, x]
+    if (x === 'top' || x === 'bottom' || y === 'left' || y === 'right') return null
+    cx = positionValue(x, width)
+    cy = positionValue(y, height)
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null
+  }
+
+  let shape: 'circle' | 'ellipse' | undefined
+  let size: 'closest-side' | 'farthest-side' | 'closest-corner' | 'farthest-corner' | undefined
+  const lengths: string[] = []
+  const lengthToken = /^(?:\d+(?:\.\d*)?|\.\d+)(?:px|%)$|^0(?:\.0+)?$/i
+  for (const token of shapeText ? shapeText.split(/\s+/) : []) {
+    if (token === 'circle' || token === 'ellipse') {
+      if (shape) return null
+      shape = token
+    } else if (
+      token === 'closest-side' ||
+      token === 'farthest-side' ||
+      token === 'closest-corner' ||
+      token === 'farthest-corner'
+    ) {
+      if (size) return null
+      size = token
+    } else if (lengthToken.test(token)) lengths.push(token)
+    else return null
+  }
+  if (lengths.length > 2 || (size && lengths.length)) return null
+  shape ??= lengths.length === 1 ? 'circle' : 'ellipse'
+  if (
+    (shape === 'circle' && (lengths.length > 1 || lengths[0]?.endsWith('%'))) ||
+    (shape === 'ellipse' && lengths.length === 1)
+  )
+    return null
+
+  let rx: number
+  let ry: number
+  if (lengths.length) {
+    rx = length(lengths[0] ?? '0', width)
+    ry = shape === 'circle' ? rx : length(lengths[1] ?? '0', height)
+  } else {
+    const closest = size?.startsWith('closest') ?? false
+    const side = size?.endsWith('side') ?? false
+    const horizontal = [Math.abs(cx), Math.abs(width - cx)]
+    const vertical = [Math.abs(cy), Math.abs(height - cy)]
+    const dx = closest ? Math.min(...horizontal) : Math.max(...horizontal)
+    const dy = closest ? Math.min(...vertical) : Math.max(...vertical)
+    if (shape === 'circle')
+      rx = ry = side ? (closest ? Math.min(dx, dy) : Math.max(dx, dy)) : Math.hypot(dx, dy)
+    else {
+      rx = dx * (side ? 1 : Math.SQRT2)
+      ry = dy * (side ? 1 : Math.SQRT2)
+    }
+  }
+  if (![cx, cy, rx, ry].every(Number.isFinite) || rx <= 0 || ry <= 0) return null
+  return { cx, cy, rx, ry }
+}
+
 export function paintGradient(
   context: CanvasRenderingContext2D,
   value: string,
   width: number,
   height: number
 ): boolean {
+  if (![width, height].every(Number.isFinite) || width <= 0 || height <= 0) return false
   const match = value.match(/^(linear|radial)-gradient\((.*)\)$/)
   if (!match?.[1] || !match[2]) return false
   const parts = splitCss(match[2])
   let extent = 1
   let gradient: CanvasGradient
+  let radial: RadialGeometry | undefined
   context.save()
   if (match[1] === 'linear') {
     let angle = Math.PI
@@ -199,41 +276,21 @@ export function paintGradient(
       height / 2 + (y * extent) / 2
     )
   } else {
-    let cx = width / 2,
-      cy = height / 2
-    let rx = Math.max(cx, width - cx) * Math.SQRT2,
-      ry = Math.max(cy, height - cy) * Math.SQRT2
     const first = parts[0] ?? ''
+    let prelude = ''
     if (!CSS.supports('color', first.replace(/\s+-?[\d.]+(?:%|px).*$/, ''))) {
       parts.shift()
-      const [shape = '', position] = first.split(/\s+at\s+/)
-      if (position) {
-        const [x = '50%', y = '50%'] = position.split(/\s+/)
-        cx = positionValue(x, width)
-        cy = positionValue(y, height)
-      }
-      const near = shape.includes('closest'),
-        side = shape.includes('side')
-      const dx = near ? Math.min(cx, width - cx) : Math.max(cx, width - cx)
-      const dy = near ? Math.min(cy, height - cy) : Math.max(cy, height - cy)
-      const sizes = shape.split(/\s+/).filter((token) => /^[\d.]+(?:px|%)$/.test(token))
-      if (sizes.length) {
-        rx = length(sizes[0] ?? '0', width)
-        ry = length(sizes[1] ?? sizes[0] ?? '0', height)
-      } else if (shape.includes('circle')) {
-        rx = ry = side ? (near ? Math.min(dx, dy) : Math.max(dx, dy)) : Math.hypot(dx, dy)
-      } else {
-        rx = dx * (side ? 1 : Math.SQRT2)
-        ry = dy * (side ? 1 : Math.SQRT2)
-      }
+      prelude = first
     }
-    if (rx <= 0 || ry <= 0) {
+    const geometry = radialGeometry(prelude, width, height)
+    if (!geometry) {
       context.restore()
-      return true
+      return false
     }
-    extent = rx
-    context.translate(cx, cy)
-    context.scale(rx, ry)
+    radial = geometry
+    extent = radial.rx
+    context.translate(radial.cx, radial.cy)
+    context.scale(radial.rx, radial.ry)
     gradient = context.createRadialGradient(0, 0, 0, 0, 0, 1)
   }
   const parsed = stops(parts, Math.max(extent, 1))
@@ -244,10 +301,22 @@ export function paintGradient(
   try {
     for (const stop of parsed)
       gradient.addColorStop(Math.max(0, Math.min(1, stop.offset ?? 0)), stop.color)
-    // The gradient records its transform at creation; restore before filling the box.
-    context.restore()
-    context.fillStyle = gradient
-    context.fillRect(0, 0, width, height)
+    if (radial) {
+      // The gradient is evaluated in the active coordinate space. Paint the
+      // original box through the inverse transform before restoring the CTM.
+      context.fillStyle = gradient
+      context.fillRect(
+        -radial.cx / radial.rx,
+        -radial.cy / radial.ry,
+        width / radial.rx,
+        height / radial.ry
+      )
+      context.restore()
+    } else {
+      context.restore()
+      context.fillStyle = gradient
+      context.fillRect(0, 0, width, height)
+    }
     return true
   } catch {
     context.restore()

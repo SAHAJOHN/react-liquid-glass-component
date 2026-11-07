@@ -49,6 +49,7 @@ interface Options {
   maxPixelRatio: number
   presentation: 'scene' | 'glass-only'
   canvasContainer: HTMLElement | null
+  foreground: 'canvas' | 'native'
   onStatusChange: ((state: LiquidGlassSceneStatus) => void) | undefined
 }
 
@@ -218,6 +219,7 @@ export function useScene(options: Options): void {
     maxPixelRatio,
     presentation,
     canvasContainer,
+    foreground,
   } = options
   const callback = useRef(options.onStatusChange)
   useEffect(() => {
@@ -262,8 +264,22 @@ export function useScene(options: Options): void {
       deniedCertificate = undefined
       start()
     }
-    const compiler = createSceneCompiler(markDirty)
-    const viewportCompiler = canvasContainer ? createSceneCompiler(markDirty) : undefined
+    const nativeForegroundRoot =
+      foreground === 'native' && presentation === 'glass-only' ? canvasContainer : null
+    const isNativeForeground = (element: Element): boolean => {
+      if (!nativeForegroundRoot || !nativeForegroundRoot.contains(element)) return false
+      const marker = element.closest('[data-liquid-glass-foreground]')
+      return !!(
+        marker &&
+        marker !== nativeForegroundRoot &&
+        nativeForegroundRoot.contains(marker) &&
+        ![...glasses.current.keys()].some((pane) => marker === pane || marker.contains(pane))
+      )
+    }
+    const compiler = createSceneCompiler(markDirty, nativeForegroundRoot)
+    const viewportCompiler = canvasContainer
+      ? createSceneCompiler(markDirty, nativeForegroundRoot)
+      : undefined
     const paneResize = presentation === 'glass-only' ? new ResizeObserver(markDirty) : undefined
     const observedPanes = new Set<HTMLElement>()
     const syncPaneObservers = () => {
@@ -459,7 +475,17 @@ export function useScene(options: Options): void {
         }
       }
       const animations =
-        typeof source.getAnimations === 'function' ? source.getAnimations({ subtree: true }) : []
+        typeof source.getAnimations === 'function'
+          ? source.getAnimations({ subtree: true }).filter((animation) => {
+              const effect = animation.effect
+              return !(
+                effect &&
+                'target' in effect &&
+                effect.target instanceof Element &&
+                isNativeForeground(effect.target)
+              )
+            })
+          : []
       const sourceRunning = animations.some((animation) => animation.playState === 'running')
       const anyRunning = ancestorAnimating || sourceRunning
       const animating =
@@ -1255,5 +1281,6 @@ export function useScene(options: Options): void {
     maxPixelRatio,
     presentation,
     canvasContainer,
+    foreground,
   ])
 }

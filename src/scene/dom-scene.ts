@@ -15,7 +15,7 @@ import type {
   SamplingWatch,
 } from './types'
 import { backgroundUrl, boxRadii, createColorReader, length, paintBox, splitCss } from './paint-box'
-import { paintBoxShadows } from './paint-shadow'
+import { paintBoxShadows, parseBoxShadows } from './paint-shadow'
 import type { BoxShadowPaint, BoxShadowSprite } from './paint-shadow'
 import { measurePseudoBox, paintPseudoBox, type PseudoName } from './paint-pseudo'
 import { paintBackdropMask } from './backdrop-mask'
@@ -23,7 +23,17 @@ import { hasIntersectingSubtreeMask, paintSubtreeMask } from './subtree-mask'
 import { createNativeBorderSource, paintNativeBorder } from './native-border'
 import { parseBackdropFilter } from './backdrop-filter'
 import { createStackingHoistPlan } from './stacking-hoist'
-import { getBoundedRelativePaintRect } from './stacking-bounds'
+import { getBoundedRelativePaintRect, getClippedElementPaintRect } from './stacking-bounds'
+import { proveUnsupportedSubtreeBounds } from './foreground-region-proof'
+import {
+  inspectTextEffect,
+  paintTextEffect,
+  textEffectGeometry,
+  textEffectRasterRatio,
+  type SupportedTextEffect,
+} from './text-effects'
+import { inspectImageFilter, paintImageFilter, type SupportedImageFilter } from './image-filter'
+import { createBlurredImageSource, type BlurredImageSource } from './blurred-image'
 import { isSupportedIndividualTranslate } from './translate'
 import { createOpacityGroupPainter } from './opacity-group'
 import {
@@ -66,8 +76,14 @@ interface SvgRasterSize {
 }
 const omitted = new Set(['SCRIPT', 'STYLE', 'LINK', 'META', 'NOSCRIPT', 'TEMPLATE'])
 const editableInputTypes = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number'])
+const deferrableActiveInputTypes = new Set(['text', 'search', 'email', 'url', 'tel'])
 const filterError = 'CSS filters outside LiquidGlass require native HTML rendering'
 const maskError = 'CSS masks and clip paths require native HTML rendering'
+const textShadowError = 'CSS text shadows require native HTML rendering'
+const clippedBackgroundError =
+  'Text-clipped and fixed CSS backgrounds require native HTML rendering'
+const textStrokeError = 'CSS text strokes require native HTML rendering'
+const activeEditingError = 'Active text editing requires native HTML rendering'
 
 type Filter =
   | { kind: 'none' }
@@ -88,6 +104,14 @@ function readFilter(value: string | undefined): Filter {
   return Number.isFinite(factor) && factor >= 0 && factor <= 1
     ? { kind: 'brightness', factor }
     : { kind: 'unsupported' }
+}
+
+function isDeferrableActiveEditor(element: Element): boolean {
+  if (document.activeElement !== element) return false
+  return (
+    element instanceof HTMLTextAreaElement ||
+    (element instanceof HTMLInputElement && deferrableActiveInputTypes.has(element.type))
+  )
 }
 
 function toRect(bounds: DOMRect, space: Space, frame: SceneFrame): SceneRect {
@@ -180,6 +204,62 @@ function boundedLeafEffects(element: HTMLElement, style: CSSStyleDeclaration): b
     return false
   return (['::before', '::after'] as const).every(
     (pseudo) => measurePseudoBox(element, pseudo).status === 'none'
+  )
+}
+
+function isolatedImageFilter(
+  element: HTMLImageElement,
+  style: CSSStyleDeclaration,
+  color: (value: string) => readonly number[]
+): SupportedImageFilter | undefined {
+  const filter = inspectImageFilter(style.filter)
+  if (
+    !filter ||
+    element.childNodes.length > 0 ||
+    hasBoxPaint(style, color) ||
+    (style.boxShadow && style.boxShadow !== 'none') ||
+    (style.textShadow && style.textShadow !== 'none') ||
+    (style.outlineStyle && style.outlineStyle !== 'none') ||
+    hasBackdropFilter(style) ||
+    (style.clipPath && style.clipPath !== 'none') ||
+    hasMaskImage(style) ||
+    (style.mixBlendMode && style.mixBlendMode !== 'normal') ||
+    (style.opacity && Number.parseFloat(style.opacity) !== 1) ||
+    (document.fullscreenElement && element.contains(document.fullscreenElement)) ||
+    !(['::before', '::after'] as const).every(
+      (pseudo) => measurePseudoBox(element, pseudo).status === 'none'
+    )
+  )
+    return undefined
+  return filter
+}
+
+function blurRadius(value: string | undefined): number | null {
+  const match = /^blur\(\s*([+]?(?:\d+(?:\.\d*)?|\.\d+))px\s*\)$/i.exec(value?.trim() ?? '')
+  if (!match?.[1]) return null
+  const radius = Number(match[1])
+  return Number.isFinite(radius) && radius > 0 && radius <= 64 ? radius : null
+}
+
+function translationOnlyTransform(style: CSSStyleDeclaration): boolean {
+  if (
+    (style.rotate && style.rotate !== 'none') ||
+    (style.scale && style.scale !== 'none') ||
+    (style.perspective && style.perspective !== 'none')
+  )
+    return false
+  const transform = style.transform?.trim() ?? ''
+  if (!transform || transform === 'none') return true
+  const match = /^matrix\(([^()]*)\)$/.exec(transform)
+  if (!match?.[1]) return false
+  const values = match[1].split(',').map((value) => Number(value.trim()))
+  return (
+    values.length === 6 &&
+    values.every(Number.isFinite) &&
+    values[0] === 1 &&
+    values[1] === 0 &&
+    values[2] === 0 &&
+    values[3] === 1
   )
 }
 
@@ -322,7 +402,10 @@ function hasBackdropRootBetween(element: Element, root: Element, readStyle: Styl
 }
 
 /** Reads ordinary DOM; callers never annotate text, media, or paint primitives. */
-export function createSceneCompiler(invalidate: () => void): SceneCompiler {
+export function createSceneCompiler(
+  invalidate: () => void,
+  nativeForegroundRoot?: HTMLElement | null
+): SceneCompiler {
   const readColor = createColorReader()
   const assets = createAssetCache(invalidate)
   const boxCache = new WeakMap<Element, CachedPaint>()
@@ -339,6 +422,17 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
   let opaqueMask: HTMLCanvasElement | undefined
   let textCache = new WeakMap<Text, CachedPaint>()
   let imageCache = new WeakMap<Element, CachedPaint>()
+  const blurInputCache = new WeakMap<HTMLImageElement, CachedPaint>()
+  const blurredSourceCache = new WeakMap<HTMLElement, { key: string; value: BlurredImageSource }>()
+  const bitmapIds = new WeakMap<HTMLCanvasElement, number>()
+  let nextBitmapId = 1
+  const bitmapId = (bitmap: HTMLCanvasElement) => {
+    const previous = bitmapIds.get(bitmap)
+    if (previous !== undefined) return previous
+    const result = nextBitmapId++
+    bitmapIds.set(bitmap, result)
+    return result
+  }
   const rejectedDomImages = new WeakMap<HTMLImageElement, string>()
   const svgSizes = new WeakMap<SVGSVGElement, SvgRasterSize>()
   const mapBitmaps = new Map<string, HTMLCanvasElement>()
@@ -387,10 +481,44 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
       const items: SceneItem[] = []
       const targets: SceneTarget[] = []
       const issues = new Set<string>()
+      const foregroundMarkers = new Set<Element>()
+      if (nativeForegroundRoot) {
+        for (const marker of nativeForegroundRoot.querySelectorAll(
+          '[data-liquid-glass-foreground]'
+        )) {
+          if ([...glasses.keys()].some((pane) => marker === pane || marker.contains(pane))) {
+            issues.add('Native foreground cannot contain a managed glass pane')
+          } else foregroundMarkers.add(marker)
+        }
+      }
+      // Check the ancestor chain instead of only the marker itself: hoisted
+      // descendants and cached geometry queries can start inside a subtree.
+      const foregroundCache = new WeakMap<Element, boolean>()
+      const isNativeForeground = (element: Element): boolean => {
+        if (!foregroundMarkers.size) return false
+        const cached = foregroundCache.get(element)
+        if (cached !== undefined) return cached
+        let result = false
+        for (
+          let current: Element | null = element;
+          current && current !== nativeForegroundRoot;
+          current = current.parentElement
+        ) {
+          if (foregroundMarkers.has(current)) {
+            result = true
+            break
+          }
+        }
+        foregroundCache.set(element, result)
+        return result
+      }
       assets.begin()
       const usedMapKeys = new Set<string>()
       const media: (HTMLVideoElement | HTMLCanvasElement)[] = []
       let liveGeometry = false
+      let deferredOpacityGroup = false
+      let deferredUnsupportedEffect = false
+      const deferredActiveEditors = new WeakSet<Element>()
       const samplingWatches: SamplingWatch[] = []
       let shadowPaintCount = 0
       const styleCache = new WeakMap<Element, Map<string, CSSStyleDeclaration>>()
@@ -410,7 +538,8 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
       const stacking = createStackingHoistPlan(
         root,
         (element, style) => createsStackingContext(element, style, readStyle),
-        readStyle
+        readStyle,
+        isNativeForeground
       )
       // Compilation is synchronous and does not mutate the source DOM. Reuse
       // layout reads within this pass, but discard them before the next frame.
@@ -419,7 +548,9 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
       const readDescendants = (element: Element): Element[] => {
         const cached = descendantCache.get(element)
         if (cached) return cached
-        const descendants = Array.from(element.querySelectorAll('*'))
+        const descendants = Array.from(element.querySelectorAll('*')).filter(
+          (descendant) => !isNativeForeground(descendant)
+        )
         descendantCache.set(element, descendants)
         return descendants
       }
@@ -471,7 +602,21 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         if (!cached.uncertain && (!cached.bounds || !overlaps(cached.bounds))) return false
         return descendants.some((child) => {
           const rect = readRect(child)
-          return rect.width > 0 && rect.height > 0 && overlaps(rect)
+          if (rect.width <= 0 || rect.height <= 0 || !overlaps(rect)) return false
+          // Raw descendant boxes may lie outside their scroll viewport. Only
+          // narrow the overlap when the complete overflow clip chain is proven.
+          const clipped = getClippedElementPaintRect(child, root, readStyle)
+          if (!clipped) return true
+          return (
+            clipped.width > 0 &&
+            clipped.height > 0 &&
+            overlaps({
+              left: clipped.x,
+              top: clipped.y,
+              right: clipped.x + clipped.width,
+              bottom: clipped.y + clipped.height,
+            })
+          )
         })
       }
       const orderedChildren = new WeakMap<
@@ -483,7 +628,9 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         if (cached) return cached
         const layout = readStyle(container).display
         const levels = new Map<Element, number>()
-        const children = Array.from(container.children)
+        const children = Array.from(container.children).filter(
+          (child) => !isNativeForeground(child)
+        )
         for (const child of children) {
           const childStyle = readStyle(child)
           levels.set(
@@ -507,6 +654,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
             frame,
             readStyle,
             readRect,
+            shouldSkip: isNativeForeground,
           })
         : { regions: undefined, hasBackdrop: false }
       const sourceRegions = relevance.regions
@@ -559,24 +707,350 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         width: region.width + warmMargin * 2,
         height: region.height + warmMargin * 2,
       }))
+      const focusVisiblePaintBounds = ({ element, rect }: SceneTarget): SceneRect | null => {
+        const allowAncestorBackdrop = isDeferrableActiveEditor(element)
+        for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+          const style = readStyle(ancestor)
+          const filter = readFilter(style.filter)
+          if (
+            !translationOnlyTransform(style) ||
+            (filter.kind !== 'none' && filter.kind !== 'identity') ||
+            (hasBackdropFilter(style) && (ancestor === element || !allowAncestorBackdrop))
+          )
+            return null
+          if (ancestor === root) break
+          if (!ancestor.parentElement) return null
+        }
+
+        const style = readStyle(element)
+        if (
+          element.shadowRoot ||
+          (document.fullscreenElement && element.contains(document.fullscreenElement)) ||
+          (style.clipPath && style.clipPath !== 'none') ||
+          hasMaskImage(style) ||
+          (style.mixBlendMode && style.mixBlendMode !== 'normal') ||
+          (style.borderImageSource && style.borderImageSource !== 'none') ||
+          (style.backgroundAttachment && style.backgroundAttachment !== 'scroll') ||
+          (['::before', '::after'] as const).some((pseudo) => {
+            const content = readStyle(element, pseudo).content
+            return content && content !== 'none' && content !== 'normal'
+          })
+        )
+          return null
+
+        const length = (value: string): number | null => {
+          const input = value.trim()
+          if (/^[+-]?0(?:\.0+)?$/.test(input)) return 0
+          if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)px$/i.test(input)) return null
+          const result = Number.parseFloat(input)
+          return Number.isFinite(result) ? result : null
+        }
+        const outsets = { top: 3, right: 3, bottom: 3, left: 3 }
+        if (style.outlineStyle && style.outlineStyle !== 'none') {
+          const width = length(style.outlineWidth)
+          const offset = length(style.outlineOffset)
+          if (width === null || offset === null || width < 0) return null
+          const extent = Math.max(0, width + offset) + 2
+          outsets.top =
+            outsets.right =
+            outsets.bottom =
+            outsets.left =
+              Math.max(outsets.top, extent)
+        }
+        for (const value of [style.boxShadow, style.textShadow]) {
+          const parsed = parseBoxShadows(value, style.color)
+          if (parsed.status === 'unsupported') return null
+          if (parsed.status !== 'ready') continue
+          for (const shadow of parsed.layers) {
+            if (shadow.inset) continue
+            const extent = Math.max(0, shadow.spread) + shadow.blur * 2 + 2
+            outsets.left = Math.max(outsets.left, extent - shadow.offsetX)
+            outsets.right = Math.max(outsets.right, extent + shadow.offsetX)
+            outsets.top = Math.max(outsets.top, extent - shadow.offsetY)
+            outsets.bottom = Math.max(outsets.bottom, extent + shadow.offsetY)
+          }
+        }
+        return {
+          x: rect.x - outsets.left,
+          y: rect.y - outsets.top,
+          width: rect.width + outsets.left + outsets.right,
+          height: rect.height + outsets.top + outsets.bottom,
+        }
+      }
+      const focusVisibleAffectsGlass = ({ element, rect, space }: SceneTarget): boolean => {
+        if (!element.matches(':focus-visible')) return false
+        const paintBounds = focusVisiblePaintBounds({ element, rect, space })
+        if (!paintBounds) return true
+        return sceneSamplingRelation(paintBounds, space, frame, sourceRegions) !== 'outside'
+      }
       // The GPU culling regions are viewport-relative; scrolling must rebuild
       // them even when no sticky or backdrop elements are present.
       if (relevance.hasBackdrop || sourceRegions) liveGeometry = true
 
-      const text = (node: Text, parent: HTMLElement, geometry: Geometry) => {
-        if (!node.data.trim()) return
-        const range = document.createRange()
-        range.selectNodeContents(node)
-        const bounds = range.getBoundingClientRect()
-        if (!bounds.width || !bounds.height) return
-        const style = readStyle(parent)
-        if (style.visibility !== 'visible') return
-        const { width, height } = logicalSize(bounds, geometry)
-        const ratio = rasterRatio(width, height, frame.pixelRatio)
-        const key = [
+      interface BlurImagePlan {
+        image: HTMLImageElement
+        imageStyle: CSSStyleDeclaration
+        radius: number
+      }
+      const blurImagePlan = (
+        element: HTMLElement,
+        style: CSSStyleDeclaration,
+        bounds: DOMRect,
+        geometry: Geometry
+      ): BlurImagePlan | undefined => {
+        const radius = blurRadius(style.filter)
+        if (
+          radius === null ||
+          geometry.scaleX !== 1 ||
+          geometry.scaleY !== 1 ||
+          geometry.opacity !== 1 ||
+          !translationOnlyTransform(style) ||
+          !['hidden', 'clip'].includes(style.overflowX) ||
+          !['hidden', 'clip'].includes(style.overflowY) ||
+          hasBoxPaint(style, readColor) ||
+          (style.boxShadow && style.boxShadow !== 'none') ||
+          (style.textShadow && style.textShadow !== 'none') ||
+          (style.outlineStyle && style.outlineStyle !== 'none') ||
+          hasBackdropFilter(style) ||
+          (style.clipPath && style.clipPath !== 'none') ||
+          hasMaskImage(style) ||
+          (style.mixBlendMode && style.mixBlendMode !== 'normal') ||
+          (document.fullscreenElement && element.contains(document.fullscreenElement)) ||
+          [...glasses.keys()].some((pane) => element === pane || element.contains(pane)) ||
+          !(['::before', '::after'] as const).every(
+            (pseudo) => measurePseudoBox(element, pseudo).status === 'none'
+          )
+        )
+          return undefined
+        for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+          if (!translationOnlyTransform(readStyle(ancestor))) return undefined
+          if (ancestor === root) break
+          if (!ancestor.parentElement) return undefined
+        }
+        const children = Array.from(element.childNodes).filter(
+          (node) => !(node instanceof Text) || Boolean(node.data.trim())
+        )
+        if (children.length !== 1 || !(children[0] instanceof HTMLImageElement)) return undefined
+        const image = children[0]
+        const imageStyle = readStyle(image)
+        const imageBounds = readRect(image)
+        if (
+          ![bounds.left, bounds.top, bounds.width, bounds.height].every(Number.isFinite) ||
+          bounds.width <= 0 ||
+          bounds.height <= 0 ||
+          Math.abs(bounds.left - imageBounds.left) > 0.5 ||
+          Math.abs(bounds.top - imageBounds.top) > 0.5 ||
+          Math.abs(bounds.width - imageBounds.width) > 0.5 ||
+          Math.abs(bounds.height - imageBounds.height) > 0.5 ||
+          image.childNodes.length > 0 ||
+          (imageStyle.opacity && Number.parseFloat(imageStyle.opacity) !== 1) ||
+          (imageStyle.filter && imageStyle.filter !== 'none') ||
+          !translationOnlyTransform(imageStyle) ||
+          hasBoxPaint(imageStyle, readColor) ||
+          (imageStyle.boxShadow && imageStyle.boxShadow !== 'none') ||
+          (imageStyle.textShadow && imageStyle.textShadow !== 'none') ||
+          (imageStyle.outlineStyle && imageStyle.outlineStyle !== 'none') ||
+          hasBackdropFilter(imageStyle) ||
+          (imageStyle.clipPath && imageStyle.clipPath !== 'none') ||
+          hasMaskImage(imageStyle) ||
+          (imageStyle.mixBlendMode && imageStyle.mixBlendMode !== 'normal') ||
+          !(['::before', '::after'] as const).every(
+            (pseudo) => measurePseudoBox(image, pseudo).status === 'none'
+          )
+        )
+          return undefined
+        return { image, imageStyle, radius }
+      }
+
+      type BlurredImagePreparation =
+        | { status: 'ready'; bitmap: HTMLCanvasElement; rect: SceneRect }
+        | { status: 'pending' | 'error'; reason: string }
+      const prepareBlurredImage = (
+        element: HTMLElement,
+        style: CSSStyleDeclaration,
+        bounds: DOMRect,
+        plan: BlurImagePlan
+      ): BlurredImagePreparation => {
+        const { image, imageStyle, radius } = plan
+        const source = image.currentSrc || image.src
+        if (!source) return { status: 'error', reason: 'Blurred image has no source' }
+        const logicalWidth = bounds.width
+        const logicalHeight = bounds.height
+        const ratio = rasterRatio(logicalWidth, logicalHeight, frame.pixelRatio)
+        const radii = new Set([
+          'borderTopLeftRadius',
+          'borderTopRightRadius',
+          'borderBottomRightRadius',
+          'borderBottomLeftRadius',
+        ])
+        // The parent's overflow radius clips the source alpha before CSS blur.
+        const clippedStyle = new Proxy(imageStyle, {
+          get(target, property) {
+            return typeof property === 'string' && radii.has(property)
+              ? Reflect.get(style, property)
+              : Reflect.get(target, property)
+          },
+        })
+        const sourceKey = (variant: 'dom' | 'anonymous') =>
+          [
+            'blur-source',
+            source,
+            variant,
+            logicalWidth.toFixed(3),
+            logicalHeight.toFixed(3),
+            ratio,
+            imageStyle.objectFit,
+            imageStyle.objectPosition,
+            style.borderTopLeftRadius,
+            style.borderTopRightRadius,
+            style.borderBottomRightRadius,
+            style.borderBottomLeftRadius,
+          ].join('|')
+        const unavailable = (status: 'loading' | 'error'): BlurredImagePreparation => ({
+          status: status === 'loading' ? 'pending' : 'error',
+          reason:
+            status === 'loading'
+              ? 'Image is loading'
+              : 'Blurred image source could not be read; check its URL and CORS permission',
+        })
+        const reuseDomImage =
+          rejectedDomImages.get(image) !== source && canReuseLoadedImage(image, source)
+        let asset = reuseDomImage ? { image, status: 'ready' as const } : assets.get(source)
+        if (asset.status !== 'ready') return unavailable(asset.status)
+        let variant: 'dom' | 'anonymous' = reuseDomImage ? 'dom' : 'anonymous'
+        let cached = blurInputCache.get(image)
+        let sourceBitmap: HTMLCanvasElement
+        if (cached?.key === sourceKey(variant)) {
+          if (cached.issues.length)
+            return { status: 'error', reason: cached.issues[0] ?? filterError }
+          sourceBitmap = cached.bitmap
+        } else {
+          let paintIssues = new Set<string>()
+          sourceBitmap = paintImage(
+            asset.image,
+            logicalWidth,
+            logicalHeight,
+            ratio,
+            clippedStyle,
+            paintIssues
+          )
+          if (reuseDomImage && paintIssues.has('Cross-origin image requires CORS permission')) {
+            rejectedDomImages.set(image, source)
+            asset = assets.get(source)
+            if (asset.status !== 'ready') return unavailable(asset.status)
+            variant = 'anonymous'
+            cached = blurInputCache.get(image)
+            if (cached?.key === sourceKey(variant)) {
+              if (cached.issues.length)
+                return { status: 'error', reason: cached.issues[0] ?? filterError }
+              sourceBitmap = cached.bitmap
+            } else {
+              paintIssues = new Set<string>()
+              sourceBitmap = paintImage(
+                asset.image,
+                logicalWidth,
+                logicalHeight,
+                ratio,
+                clippedStyle,
+                paintIssues
+              )
+            }
+          }
+          const result = {
+            key: sourceKey(variant),
+            bitmap: sourceBitmap,
+            issues: Array.from(paintIssues),
+          }
+          blurInputCache.set(image, result)
+          if (result.issues.length)
+            return { status: 'error', reason: result.issues[0] ?? filterError }
+        }
+
+        const blurredKey = `${bitmapId(sourceBitmap)}|${logicalWidth}|${logicalHeight}|${radius}`
+        let blurred = blurredSourceCache.get(element)
+        if (blurred?.key !== blurredKey) {
+          const value = createBlurredImageSource(sourceBitmap, logicalWidth, logicalHeight, radius)
+          if (!value) return { status: 'error', reason: filterError }
+          blurred = { key: blurredKey, value }
+          blurredSourceCache.set(element, blurred)
+        }
+        const blurredAsset = assets.get(blurred.value.source)
+        if (blurredAsset.status !== 'ready')
+          return {
+            status: blurredAsset.status === 'loading' ? 'pending' : 'error',
+            reason:
+              blurredAsset.status === 'loading'
+                ? 'SVG is loading'
+                : 'Blurred image could not be rendered',
+          }
+        const outputRatio = rasterRatio(blurred.value.width, blurred.value.height, frame.pixelRatio)
+        const outputKey = `${blurred.value.source}|${outputRatio}`
+        const previousOutput = imageCache.get(element)
+        let bitmap = previousOutput?.key === outputKey ? previousOutput.bitmap : undefined
+        if (!bitmap) {
+          const outputStyle = {
+            paddingLeft: '0px',
+            paddingTop: '0px',
+            paddingRight: '0px',
+            paddingBottom: '0px',
+            borderLeftWidth: '0px',
+            borderTopWidth: '0px',
+            borderRightWidth: '0px',
+            borderBottomWidth: '0px',
+            borderTopLeftRadius: '0px',
+            borderTopRightRadius: '0px',
+            borderBottomRightRadius: '0px',
+            borderBottomLeftRadius: '0px',
+            objectFit: 'fill',
+            objectPosition: '50% 50%',
+          } as CSSStyleDeclaration
+          const outputIssues = new Set<string>()
+          bitmap = paintImage(
+            blurredAsset.image,
+            blurred.value.width,
+            blurred.value.height,
+            outputRatio,
+            outputStyle,
+            outputIssues
+          )
+          const result = { key: outputKey, bitmap, issues: Array.from(outputIssues) }
+          imageCache.set(element, result)
+          if (result.issues.length)
+            return { status: 'error', reason: result.issues[0] ?? filterError }
+        }
+        return {
+          status: 'ready',
+          bitmap,
+          rect: {
+            x: bounds.left - blurred.value.insetX,
+            y: bounds.top - blurred.value.insetY,
+            width: blurred.value.width,
+            height: blurred.value.height,
+          },
+        }
+      }
+
+      const preparedTextEffects = new WeakMap<
+        Text,
+        {
+          bitmap: HTMLCanvasElement
+          rect: SceneRect
+          kind: SupportedTextEffect['kind']
+        }
+      >()
+      const failedTextEffects = new WeakSet<Text>()
+      const textKey = (
+        node: Text,
+        parent: HTMLElement,
+        bounds: DOMRect,
+        style: CSSStyleDeclaration,
+        ratio: number,
+        extra = ''
+      ) =>
+        [
           node.data,
-          width.toFixed(3),
-          height.toFixed(3),
+          bounds.width.toFixed(3),
+          bounds.height.toFixed(3),
           ratio,
           style.font,
           style.fontFamily,
@@ -589,7 +1063,44 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
           style.textDecorationLine,
           style.color,
           parent.clientWidth,
+          extra,
         ].join('|')
+
+      const text = (node: Text, parent: HTMLElement, geometry: Geometry) => {
+        if (!node.data.trim()) return
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        const bounds = range.getBoundingClientRect()
+        if (!bounds.width || !bounds.height) return
+        const style = readStyle(parent)
+        if (style.visibility !== 'visible') return
+        const prepared = preparedTextEffects.get(node)
+        if (prepared) {
+          items.push({
+            kind: 'sprite',
+            ...base(
+              {
+                ...prepared.rect,
+                x: prepared.rect.x + (geometry.space === 'document' ? frame.scrollX : 0),
+                y: prepared.rect.y + (geometry.space === 'document' ? frame.scrollY : 0),
+              },
+              geometry
+            ),
+            bitmap: prepared.bitmap,
+          })
+          return
+        }
+        if (failedTextEffects.has(node)) return
+        const { width, height } = logicalSize(bounds, geometry)
+        const ratio = rasterRatio(width, height, frame.pixelRatio)
+        const key = textKey(
+          node,
+          parent,
+          bounds,
+          style,
+          ratio,
+          `${geometry.scaleX}|${geometry.scaleY}`
+        )
         const bitmap = paintCached(
           textCache,
           node,
@@ -605,6 +1116,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
       }
 
       const walk = (element: Element, inherited: Geometry) => {
+        if (isNativeForeground(element)) return
         if (stacking.defer(element, () => walk(element, inherited))) return
         if (
           omitted.has(element.tagName) ||
@@ -676,6 +1188,104 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
           }
         }
         if (geometry.opacity <= 0) return
+        let preparedTextEffect: SupportedTextEffect | undefined
+        if (element instanceof HTMLElement) {
+          const inspected = inspectTextEffect(element, style)
+          if (inspected.kind !== 'none' && inspected.kind !== 'unsupported') {
+            const node = Array.from(element.childNodes).find(
+              (child): child is Text => child instanceof Text && Boolean(child.data.trim())
+            )
+            if (node) {
+              try {
+                const range = document.createRange()
+                range.selectNodeContents(node)
+                const textBounds = range.getBoundingClientRect()
+                const effectRatio = textEffectRasterRatio(
+                  textBounds,
+                  geometry.scaleX,
+                  geometry.scaleY,
+                  frame.pixelRatio,
+                  inspected
+                )
+                const effectGeometry = effectRatio
+                  ? textEffectGeometry(
+                      textBounds,
+                      element,
+                      effectRatio,
+                      geometry.scaleX,
+                      geometry.scaleY,
+                      inspected
+                    )
+                  : null
+                if (effectRatio && effectGeometry) {
+                  const key = textKey(
+                    node,
+                    element,
+                    textBounds,
+                    style,
+                    effectRatio,
+                    `${geometry.scaleX}|${geometry.scaleY}|${effectGeometry.cacheKey}`
+                  )
+                  const cached = textCache.get(node)
+                  let bitmap = cached?.key === key ? cached.bitmap : undefined
+                  if (!bitmap) {
+                    const painted = paintTextEffect(
+                      node,
+                      textBounds,
+                      element,
+                      style,
+                      effectRatio,
+                      geometry.scaleX,
+                      geometry.scaleY,
+                      inspected
+                    )
+                    if (painted) {
+                      bitmap = painted.bitmap
+                      textCache.set(node, { key, bitmap, issues: [] })
+                    }
+                  }
+                  if (bitmap) {
+                    preparedTextEffect = inspected
+                    preparedTextEffects.set(node, {
+                      bitmap,
+                      rect: effectGeometry.rect,
+                      kind: inspected.kind,
+                    })
+                  } else failedTextEffects.add(node)
+                }
+              } catch {
+                // Retain the native fallback issue when text geometry cannot be measured.
+                failedTextEffects.add(node)
+              }
+              if (!preparedTextEffects.has(node)) failedTextEffects.add(node)
+            }
+          }
+        }
+        const preparedImageFilter =
+          element instanceof HTMLImageElement
+            ? isolatedImageFilter(element, style, readColor)
+            : undefined
+        const imageBlurPlan =
+          element instanceof HTMLElement
+            ? blurImagePlan(element, style, bounds, geometry)
+            : undefined
+        const blurHalo = imageBlurPlan ? imageBlurPlan.radius * 3 + 2 : 0
+        const blurRelevant =
+          !sourceRegions ||
+          !imageBlurPlan ||
+          samplingRelationToRegions(
+            {
+              x: bounds.left - blurHalo,
+              y: bounds.top - blurHalo,
+              width: bounds.width + blurHalo * 2,
+              height: bounds.height + blurHalo * 2,
+            },
+            sourceRegions
+          ) !== 'outside'
+        const preparedImageBlur =
+          imageBlurPlan && blurRelevant
+            ? prepareBlurredImage(element as HTMLElement, style, bounds, imageBlurPlan)
+            : undefined
         const groupStart = items.length
         const targetStart = targets.length
         const shadowStart = shadowPaintCount
@@ -697,6 +1307,81 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
           if (!glass) {
             const elementIssues = new Set<string>()
             inspectUnsupported(element, style, elementIssues, filter)
+            if (preparedImageFilter) elementIssues.delete(filterError)
+            if (preparedImageBlur?.status === 'ready') elementIssues.delete(filterError)
+            else if (preparedImageBlur?.status === 'pending') {
+              elementIssues.delete(filterError)
+              elementIssues.add(preparedImageBlur.reason)
+            } else if (preparedImageBlur) elementIssues.add(preparedImageBlur.reason)
+            if (preparedTextEffect?.kind === 'shadow') elementIssues.delete(textShadowError)
+            if (preparedTextEffect?.kind === 'gradient')
+              elementIssues.delete(clippedBackgroundError)
+            if (preparedTextEffect?.kind === 'stroke') elementIssues.delete(textStrokeError)
+            const boundedIssue = (issue: string) =>
+              issue === filterError ||
+              issue === textShadowError ||
+              issue === clippedBackgroundError ||
+              issue === activeEditingError
+            const deferrableActiveEditing =
+              elementIssues.has(activeEditingError) && isDeferrableActiveEditor(element)
+            if (
+              sourceRegions?.length &&
+              elementIssues.size > 0 &&
+              (!elementIssues.has(activeEditingError) || deferrableActiveEditing) &&
+              Array.from(elementIssues).every(boundedIssue)
+            ) {
+              const paintBounds = deferrableActiveEditing
+                ? element instanceof HTMLElement && elementIssues.size === 1
+                  ? focusVisiblePaintBounds({ element, rect, space: geometry.space })
+                  : null
+                : proveUnsupportedSubtreeBounds({
+                    element,
+                    root,
+                    readStyle,
+                    readRect,
+                    shouldSkip: isNativeForeground,
+                    containsGlass: (candidate) =>
+                      [...glasses.keys()].some(
+                        (pane) => candidate === pane || candidate.contains(pane)
+                      ),
+                    canInclude: (candidate, candidateStyle) => {
+                      if (hasBackdropFilter(candidateStyle)) return false
+                      const candidateIssues = new Set<string>()
+                      inspectUnsupported(
+                        candidate,
+                        candidateStyle,
+                        candidateIssues,
+                        readFilter(candidateStyle.filter)
+                      )
+                      if (
+                        candidateIssues.has(activeEditingError) &&
+                        !isDeferrableActiveEditor(candidate)
+                      )
+                        return false
+                      return Array.from(candidateIssues).every(boundedIssue)
+                    },
+                  })
+              const sourceRelation = paintBounds
+                ? deferrableActiveEditing
+                  ? sceneSamplingRelation(paintBounds, geometry.space, frame, sourceRegions)
+                  : samplingRelationToRegions(paintBounds, sourceRegions)
+                : 'invalid'
+              if (paintBounds && sourceRelation === 'outside') {
+                // The effect cannot influence glass yet. Keep nearby descendants
+                // traversable for asset warmup, but omit distant paint entirely.
+                for (const issue of Array.from(elementIssues))
+                  if (boundedIssue(issue)) elementIssues.delete(issue)
+                if (deferrableActiveEditing) deferredActiveEditors.add(element)
+                deferredUnsupportedEffect = true
+                liveGeometry = true
+                const warmRelation = warmSourceRegions
+                  ? deferrableActiveEditing
+                    ? sceneSamplingRelation(paintBounds, geometry.space, frame, warmSourceRegions)
+                    : samplingRelationToRegions(paintBounds, warmSourceRegions)
+                  : 'invalid'
+                if (warmSourceRegions && warmRelation === 'outside') return
+              }
+            }
             const relation = sceneSamplingRelation(
               toRect(bounds, geometry.space, frame),
               geometry.space,
@@ -1022,7 +1707,11 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
               ...(map ? { map } : {}),
               ...(studio ? { studio } : {}),
             })
-          } else if (visible && hasBoxPaint(style, readColor)) {
+          } else if (
+            visible &&
+            preparedTextEffect?.kind !== 'gradient' &&
+            hasBoxPaint(style, readColor)
+          ) {
             const backgroundImages = new Map<string, HTMLImageElement>()
             let backgroundsReady = true
             for (const layer of splitCss(style.backgroundImage)) {
@@ -1163,6 +1852,22 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
               ...(geometry.brightness !== 1 ? { brightness: geometry.brightness } : {}),
             })
 
+          if (preparedImageBlur?.status === 'ready') {
+            items.push({
+              kind: 'sprite',
+              ...base(
+                {
+                  ...preparedImageBlur.rect,
+                  x: preparedImageBlur.rect.x + (geometry.space === 'document' ? frame.scrollX : 0),
+                  y: preparedImageBlur.rect.y + (geometry.space === 'document' ? frame.scrollY : 0),
+                },
+                geometry
+              ),
+              bitmap: preparedImageBlur.bitmap,
+            })
+            return
+          }
+
           let childrenGeometry = geometry
           const clipsX = style.overflowX !== 'visible' && style.overflowX !== 'unset'
           const clipsY = style.overflowY !== 'visible' && style.overflowY !== 'unset'
@@ -1270,7 +1975,18 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
                 style.objectFit,
                 style.objectPosition,
                 style.borderRadius,
+                preparedImageFilter ?? 'none',
               ].join('|')
+            const applyImageFilter = (
+              sourceBitmap: HTMLCanvasElement,
+              paintIssues: Set<string>
+            ) => {
+              if (!preparedImageFilter || paintIssues.size) return sourceBitmap
+              const filtered = paintImageFilter(sourceBitmap, preparedImageFilter)
+              if (filtered) return filtered
+              paintIssues.add(filterError)
+              return sourceBitmap
+            }
             let variant: 'dom' | 'anonymous' = reuseDomImage ? 'dom' : 'anonymous'
             let bitmap: HTMLCanvasElement
             let previous = imageCache.get(element)
@@ -1279,7 +1995,10 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
               bitmap = previous.bitmap
             } else {
               let paintIssues = new Set<string>()
-              bitmap = paintImage(asset.image, size.width, size.height, ratio, style, paintIssues)
+              bitmap = applyImageFilter(
+                paintImage(asset.image, size.width, size.height, ratio, style, paintIssues),
+                paintIssues
+              )
               if (reuseDomImage && paintIssues.has('Cross-origin image requires CORS permission')) {
                 // A same-origin URL can redirect to a no-CORS CDN. The DOM image
                 // then taints canvas even though its requested URL looked reusable.
@@ -1298,12 +2017,8 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
                   bitmap = previous.bitmap
                 } else {
                   paintIssues = new Set<string>()
-                  bitmap = paintImage(
-                    asset.image,
-                    size.width,
-                    size.height,
-                    ratio,
-                    style,
+                  bitmap = applyImageFilter(
+                    paintImage(asset.image, size.width, size.height, ratio, style, paintIssues),
                     paintIssues
                   )
                   const result = {
@@ -1478,7 +2193,8 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
               return
             }
             if (document.activeElement === element) {
-              issues.add('Active text editing requires native HTML rendering')
+              if (deferredActiveEditors.has(element)) return
+              issues.add(activeEditingError)
               return
             }
             if (element.scrollTop || element.scrollLeft) {
@@ -1738,9 +2454,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
             const paints = items.slice(groupStart)
             const safe =
               paints.every((item) => item.kind === 'sprite' || item.kind === 'solid') &&
-              !targets
-                .slice(targetStart)
-                .some(({ element: target }) => target.matches(':focus-visible'))
+              !targets.slice(targetStart).some(focusVisibleAffectsGlass)
             const group = safe
               ? opacityGroups.compose({
                   owner: element,
@@ -1775,9 +2489,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
           }
           if (ownOpacity < 1) {
             const nested = inherited.opacity < 1
-            const focused = targets
-              .slice(targetStart)
-              .some(({ element: target }) => target.matches(':focus-visible'))
+            const focused = targets.slice(targetStart).some(focusVisibleAffectsGlass)
             const group =
               !nested && !focused
                 ? opacityGroups.compose({
@@ -1794,10 +2506,29 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
             if (group.status === 'ready')
               items.splice(groupStart, items.length - groupStart, group.item)
             else if (group.status === 'unsupported') {
-              issues.add('CSS group opacity requires native HTML rendering')
-              issues.add(`CSS group opacity: ${group.reason}`)
-              if (shadowPaintCount > shadowStart)
-                issues.add('CSS box shadows with opacity require native HTML rendering')
+              const paints = items.slice(groupStart)
+              const outside =
+                group.reason === 'Opacity group has an ambiguous nested clip' &&
+                !!sourceRegions?.length &&
+                paints.length > 0 &&
+                paints.every(
+                  (paint) =>
+                    (paint.kind === 'sprite' || paint.kind === 'solid') &&
+                    sceneSamplingRelation(paint.rect, paint.space, frame, sourceRegions) ===
+                      'outside'
+                )
+              if (outside) {
+                // These paints cannot reach the glass or a backdrop that feeds it.
+                // Recompile on scrolling instead of projecting this incomplete scene.
+                items.splice(groupStart, paints.length)
+                deferredOpacityGroup = true
+                liveGeometry = true
+              } else {
+                issues.add('CSS group opacity requires native HTML rendering')
+                issues.add(`CSS group opacity: ${group.reason}`)
+                if (shadowPaintCount > shadowStart)
+                  issues.add('CSS box shadows with opacity require native HTML rendering')
+              }
             }
           }
         }
@@ -1812,7 +2543,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
         filtered: false,
         transformed: false,
       })
-      const focused = targets.find(({ element }) => element.matches(':focus-visible'))
+      const focused = targets.find(focusVisibleAffectsGlass)
       if (focused) {
         const { rect, space } = focused
         const edges: SceneRect[] = [
@@ -1840,6 +2571,8 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
       const certifyScrollTranslation = (): boolean => {
         if (
           issues.size ||
+          deferredOpacityGroup ||
+          deferredUnsupportedEffect ||
           !fixedContainer?.isConnected ||
           fixedContainer === root ||
           !root.contains(fixedContainer) ||
@@ -1860,6 +2593,7 @@ export function createSceneCompiler(invalidate: () => void): SceneCompiler {
           // DOM using this compile's styles before certifying pure translation.
           for (const element of [root, ...Array.from(root.querySelectorAll('*'))]) {
             if (
+              isNativeForeground(element) ||
               omitted.has(element.tagName) ||
               element.hasAttribute('data-liquid-glass-scene-canvas') ||
               element.classList.contains('liquid-glass-scene__canvas') ||
@@ -1967,14 +2701,21 @@ function inspectUnsupported(
     element instanceof HTMLEmbedElement
   )
     issues.add('Embedded documents require native HTML rendering')
-  if (
+  if (isDeferrableActiveEditor(element)) issues.add(activeEditingError)
+  else if (
     element instanceof HTMLInputElement &&
     editableInputTypes.has(element.type) &&
     document.activeElement === element
   )
-    issues.add('Active text editing requires native HTML rendering')
+    issues.add(activeEditingError)
   if (filter.kind === 'unsupported' || hasBackdropFilter(style)) issues.add(filterError)
-  if (style.textShadow !== 'none') issues.add('CSS text shadows require native HTML rendering')
+  if (style.textShadow !== 'none') issues.add(textShadowError)
+  const textStrokeWidth = style.getPropertyValue('-webkit-text-stroke-width').trim()
+  if (
+    textStrokeWidth &&
+    (!Number.isFinite(Number.parseFloat(textStrokeWidth)) || Number.parseFloat(textStrokeWidth) > 0)
+  )
+    issues.add(textStrokeError)
   if (style.borderImageSource !== 'none')
     issues.add('CSS border images require native HTML rendering')
   if (style.backgroundBlendMode.split(',').some((value) => value.trim() !== 'normal'))
@@ -1991,7 +2732,7 @@ function inspectUnsupported(
     issues.add('CSS clip requires native HTML rendering')
   if (style.mixBlendMode !== 'normal') issues.add('CSS blend modes require native HTML rendering')
   if (style.backgroundClip === 'text' || style.backgroundAttachment === 'fixed')
-    issues.add('Text-clipped and fixed CSS backgrounds require native HTML rendering')
+    issues.add(clippedBackgroundError)
   if (
     !(element instanceof HTMLElement) ||
     element instanceof HTMLInputElement ||

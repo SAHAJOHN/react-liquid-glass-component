@@ -152,10 +152,10 @@ describe('distant bounded subtree paint culling', () => {
     compiler.dispose()
   })
 
-  it('keeps nearby subtrees traversable for asset warmup', () => {
+  it('keeps nearby subtrees traversable for asset warmup without unrelated diagnostics', () => {
     const { compile, move, compiler, paintedChild } = fixture()
     move(1250)
-    expect(compile().issues).toContain(filterError)
+    expect(compile().issues).not.toContain(filterError)
     expect(paintedChild()).toBe(true)
     compiler.dispose()
   })
@@ -195,17 +195,51 @@ describe('distant bounded subtree paint culling', () => {
   })
 
   it.each(['shadow', 'invalid bounds', 'visible overflow'] as const)(
-    'retains unproven %s paint bounds',
+    'independently proves child paint bounds despite ancestor %s',
     (reason) => {
       const { clippedStyle, bounds, compile, compiler, paintedChild } = fixture()
       if (reason === 'shadow') clippedStyle.boxShadow = '0 0 100px red'
       if (reason === 'invalid bounds') bounds.mockReturnValue(new DOMRect(NaN, 3000, 300, 200))
       if (reason === 'visible overflow') clippedStyle.overflowY = 'visible'
-      expect(compile().issues).toContain(filterError)
-      expect(paintedChild()).toBe(true)
+      expect(compile().issues).not.toContain(filterError)
+      expect(paintedChild()).toBe(false)
       compiler.dispose()
     }
   )
+
+  it('fails closed for an unknown ancestor filter', () => {
+    const { clippedStyle, compile, compiler, paintedChild } = fixture()
+    clippedStyle.filter = 'url("private.svg#filter")'
+    expect(compile().issues).toContain(filterError)
+    expect(paintedChild()).toBe(true)
+    compiler.dispose()
+  })
+
+  it('fails closed for scaled ancestors and invalid child bounds', () => {
+    const scaled = fixture()
+    vi.stubGlobal(
+      'DOMMatrixReadOnly',
+      class {
+        is2D = true
+        a = 2
+        b = 0
+        c = 0
+        d = 2
+      }
+    )
+    scaled.clippedStyle.transform = 'matrix(2, 0, 0, 2, 0, 0)'
+    expect(scaled.compile().issues).toContain(filterError)
+    expect(scaled.paintedChild()).toBe(true)
+    scaled.compiler.dispose()
+    vi.unstubAllGlobals()
+
+    const invalid = fixture()
+    invalid.clippedStyle.overflowY = 'visible'
+    invalid.childBounds.mockReturnValue(new DOMRect(NaN, 3010, 100, 100))
+    expect(invalid.compile().issues).toContain(filterError)
+    expect(invalid.paintedChild()).toBe(true)
+    invalid.compiler.dispose()
+  })
 
   it('extends the warm boundary through backdrop blur before culling', () => {
     const { root, styles, makeStyle, move, compile, compiler, paintedChild } = fixture()
@@ -223,7 +257,7 @@ describe('distant bounded subtree paint culling', () => {
       fillStyle: '',
       fillRect: vi.fn(),
     } as unknown as CanvasRenderingContext2D)
-    expect(compile().issues).toContain(filterError)
+    expect(compile().issues).not.toContain(filterError)
     expect(paintedChild()).toBe(true)
     compiler.dispose()
   })
