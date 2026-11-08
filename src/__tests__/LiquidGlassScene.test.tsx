@@ -5,7 +5,7 @@ import { GLASS_STUDIO_DEFAULTS, LiquidGlass, LiquidGlassScene } from '../index'
 import * as capture from '../backdrop-capture'
 import * as compilerModule from '../scene/dom-scene'
 import * as rendererModule from '../scene/renderer'
-import type { CompiledScene, GlassOptions } from '../scene/types'
+import type { CompiledScene, GlassOptions, SceneFrame } from '../scene/types'
 
 describe('LiquidGlassScene', () => {
   let callbacks: Map<number, FrameRequestCallback>
@@ -14,7 +14,7 @@ describe('LiquidGlassScene', () => {
   let registrations: ReadonlyMap<HTMLElement, GlassOptions>
   const dispose = vi.fn()
   const disposeCompiler = vi.fn()
-  const draw = vi.fn(() => true)
+  const draw = vi.fn<(frame: SceneFrame) => boolean>(() => true)
   const setScene = vi.fn()
   const tick = () =>
     act(() => {
@@ -60,6 +60,71 @@ describe('LiquidGlassScene', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
+  })
+
+  it('keeps the default canvas pixel budget and allows an explicit higher budget', () => {
+    vi.stubGlobal('innerWidth', 430)
+    vi.stubGlobal('innerHeight', 932)
+    vi.stubGlobal('devicePixelRatio', 3)
+    const { container, rerender } = render(
+      <LiquidGlassScene maxPixelRatio={3}>
+        <LiquidGlass>Pane</LiquidGlass>
+      </LiquidGlassScene>
+    )
+    tick()
+    expect(draw).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pixelRatio: Math.sqrt(2_000_000 / (430 * 932)) })
+    )
+
+    rerender(
+      <LiquidGlassScene maxPixelRatio={3} maxCanvasPixels={16_777_216}>
+        <LiquidGlass>Pane</LiquidGlass>
+      </LiquidGlassScene>
+    )
+    tick()
+    expect(draw).toHaveBeenLastCalledWith(expect.objectContaining({ pixelRatio: 3 }))
+    expect(container.firstElementChild).not.toHaveAttribute('maxCanvasPixels')
+
+    rerender(
+      <LiquidGlassScene maxPixelRatio={3} maxCanvasPixels={1}>
+        <LiquidGlass>Pane</LiquidGlass>
+      </LiquidGlassScene>
+    )
+    tick()
+    expect(draw).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pixelRatio: Math.sqrt(1 / (430 * 932)) })
+    )
+  })
+
+  it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'uses the safe default pixel budget when given %s',
+    (maxCanvasPixels) => {
+      vi.stubGlobal('innerWidth', 430)
+      vi.stubGlobal('innerHeight', 932)
+      vi.stubGlobal('devicePixelRatio', 3)
+      render(
+        <LiquidGlassScene maxPixelRatio={3} maxCanvasPixels={maxCanvasPixels}>
+          <LiquidGlass>Pane</LiquidGlass>
+        </LiquidGlassScene>
+      )
+      tick()
+      expect(draw).toHaveBeenLastCalledWith(
+        expect.objectContaining({ pixelRatio: Math.sqrt(2_000_000 / (430 * 932)) })
+      )
+    }
+  )
+
+  it('keeps the 4096px side limit even when the canvas pixel budget is larger', () => {
+    vi.stubGlobal('innerWidth', 2000)
+    vi.stubGlobal('innerHeight', 1000)
+    vi.stubGlobal('devicePixelRatio', 3)
+    render(
+      <LiquidGlassScene maxPixelRatio={3} maxCanvasPixels={100_000_000}>
+        <LiquidGlass>Pane</LiquidGlass>
+      </LiquidGlassScene>
+    )
+    tick()
+    expect(draw).toHaveBeenLastCalledWith(expect.objectContaining({ pixelRatio: 4096 / 2000 }))
   })
 
   it('creates one managed canvas and registers existing LiquidGlass props without capture or markers', () => {
@@ -142,6 +207,60 @@ describe('LiquidGlassScene', () => {
     expect(dispose).toHaveBeenCalledOnce()
     expect(disposeCompiler).toHaveBeenCalledOnce()
     expect(callbacks.size).toBe(0)
+  })
+
+  it('registers a per-pane layer only for opted-in panes in a layered scene', () => {
+    const { container, rerender } = render(
+      <LiquidGlassScene foreground="layered">
+        <LiquidGlass nativeContent><button>Native</button></LiquidGlass>
+        <LiquidGlass>Canvas only</LiquidGlass>
+      </LiquidGlassScene>
+    )
+    tick()
+    const scene = container.querySelector('[data-liquid-glass-scene]')
+    expect(scene).toHaveAttribute('data-liquid-glass-foreground-mode', 'layered')
+    expect(scene).not.toHaveAttribute('data-liquid-glass-layered-visible')
+    const layer = container.querySelector<HTMLCanvasElement>('.liquid-glass__native-layer')
+    expect(layer).not.toBeNull()
+    expect(layer).toHaveAttribute('data-liquid-glass-scene-canvas')
+    expect(layer).toHaveAttribute('aria-hidden', 'true')
+    expect(container.querySelectorAll('.liquid-glass__native-layer')).toHaveLength(1)
+    expect([...registrations.values()].filter((entry) => entry.nativeLayer === layer)).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Native' })).toBeVisible()
+
+    rerender(
+      <LiquidGlassScene>
+        <LiquidGlass nativeContent><button>Native</button></LiquidGlass>
+      </LiquidGlassScene>
+    )
+    tick()
+    expect(scene).not.toHaveAttribute('data-liquid-glass-foreground-mode')
+    expect(container.querySelector('.liquid-glass__native-layer')).toBeNull()
+    expect([...registrations.values()].every((entry) => !entry.nativeLayer)).toBe(true)
+  })
+
+  it('shows native layers only after every pane is rendered, and clears them on fallback', () => {
+    const { container, rerender } = render(
+      <LiquidGlassScene foreground="layered">
+        <LiquidGlass nativeContent>Native content</LiquidGlass>
+      </LiquidGlassScene>
+    )
+    const scene = container.querySelector('[data-liquid-glass-scene]')
+    expect(scene).not.toHaveAttribute('data-liquid-glass-layered-visible')
+    tick()
+    expect(scene).toHaveAttribute('data-liquid-glass-scene-ready', 'true')
+    expect(scene).toHaveAttribute('data-liquid-glass-layered-visible')
+
+    result.issues = ['Unsupported test content']
+    rerender(
+      <LiquidGlassScene foreground="layered">
+        <LiquidGlass nativeContent distortionScale={-200}>Native content</LiquidGlass>
+      </LiquidGlassScene>
+    )
+    tick()
+    expect(scene).not.toHaveAttribute('data-liquid-glass-layered-visible')
+    expect(scene).not.toHaveAttribute('data-liquid-glass-scene-ready')
+    expect(screen.getByText('Native content')).toBeVisible()
   })
 
   it('keeps native HTML visible for unsupported content and recovers after a supported change', () => {

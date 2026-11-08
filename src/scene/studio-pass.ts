@@ -445,7 +445,7 @@ export function createStudioPass(gl: WebGLRenderingContext, snapshot: WebGLTextu
         gl.uniform2f(
           surfaceUniform.glareDirection,
           settings.glareOppositeFactor / 100,
-          (settings.glareAngle * Math.PI) / 180
+          ((settings.glareAngle + (item.glareOffset?.current ?? 0)) * Math.PI) / 180
         )
         gl.uniform4f(
           surfaceUniform.tint,

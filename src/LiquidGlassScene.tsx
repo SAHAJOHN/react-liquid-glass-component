@@ -22,14 +22,16 @@ export interface LiquidGlassSceneProps extends HTMLAttributes<HTMLDivElement> {
   includeStyles?: boolean
   /** Opaque base behind the scene. Defaults to the wrapper or page background. */
   background?: string
-  /** Maximum backing resolution; also limited by the mobile pixel budget. Default 2. */
+  /** Maximum backing resolution; also limited by maxCanvasPixels and the 4096px side limit. Default 2. */
   maxPixelRatio?: number
+  /** Maximum canvas backing pixels. Defaults to 2,000,000; values above 4096² are capped. */
+  maxCanvasPixels?: number
   /** Present managed panes only; native page content stays visible elsewhere. */
   presentation?: 'scene' | 'glass-only'
   /** Fixed container enclosing every pane, used to keep the canvas with native controls. */
   canvasContainer?: HTMLElement | null
-  /** Keep marked foreground subtrees as native HTML above an anchored glass-only canvas. */
-  foreground?: 'canvas' | 'native'
+  /** Keep marked controls native, or opt into per-pane layered content. */
+  foreground?: 'canvas' | 'native' | 'layered'
   /** Reports unsupported content or GPU failure without hiding the original HTML. */
   onStatusChange?: (state: LiquidGlassSceneStatus) => void
 }
@@ -44,6 +46,7 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
       children,
       background,
       maxPixelRatio = 2,
+      maxCanvasPixels = 2_000_000,
       presentation = 'scene',
       canvasContainer,
       foreground = 'canvas',
@@ -55,8 +58,11 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
     const canvas = useRef<HTMLCanvasElement>(null)
     const glasses = useRef(new Map<HTMLElement, GlassOptions>())
     const invalidate = useRef<() => void>(() => {})
+    const repaint = useRef<() => void>(() => {})
+    const layered = foreground === 'layered' && presentation === 'scene' && canvasContainer === undefined
     const controller = useMemo<SceneController>(
       () => ({
+        layered,
         register(element, options) {
           glasses.current.set(element, options)
           invalidate.current()
@@ -69,8 +75,11 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
           glasses.current.set(element, options)
           invalidate.current()
         },
+        repaint() {
+          repaint.current()
+        },
       }),
-      []
+      [layered]
     )
     const setRoot = useCallback(
       (element: HTMLDivElement | null) => {
@@ -87,8 +96,10 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
       canvas,
       glasses,
       invalidate,
+      repaint,
       background,
       maxPixelRatio,
+      maxCanvasPixels,
       presentation,
       canvasContainer: canvasContainer ?? null,
       foreground,
@@ -125,7 +136,7 @@ export const LiquidGlassScene = forwardRef<HTMLDivElement, LiquidGlassSceneProps
           ref={setRoot}
           className={`liquid-glass-scene-root ${className}`.trim()}
           data-liquid-glass-scene=""
-          data-liquid-glass-foreground-mode={nativeForeground ? 'native' : undefined}
+          data-liquid-glass-foreground-mode={nativeForeground ? 'native' : layered ? 'layered' : undefined}
         >
           <div ref={content} className="liquid-glass-scene__content">
             {children}

@@ -157,6 +157,7 @@ interface NavbarProps {
   current: NavbarPage
   settings?: GlassStudioProps
   convexity?: number
+  glareAngleMode?: 'manual' | 'interactive'
   onMenuOpenChange?: (open: boolean) => void
 }
 
@@ -165,6 +166,7 @@ export default function Navbar({
   current,
   settings = GLASS_STUDIO_DEFAULTS,
   convexity = 0,
+  glareAngleMode = 'manual',
   onMenuOpenChange,
 }: NavbarProps) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -236,6 +238,7 @@ export default function Navbar({
     <NavbarStyled
       {...settings}
       convexity={convexity}
+      glareAngleMode={glareAngleMode}
       ref={rootRef}
       className="navbar"
       role="navigation"

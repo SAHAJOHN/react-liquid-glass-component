@@ -43,6 +43,49 @@ describe('plain CSS component compatibility', () => {
     expect(css).not.toContain('&#x27;')
   })
 
+  it('only releases the pane clip while a layered scene is ready', () => {
+    const { container } = render(
+      <LiquidGlassScene foreground="layered">
+        <LiquidGlass nativeContent>Content</LiquidGlass>
+      </LiquidGlassScene>
+    )
+    const scene = container.querySelector<HTMLElement>('[data-liquid-glass-scene]')!
+    const pane = container.querySelector<HTMLElement>('.liquid-glass--layered')!
+    const content = pane.querySelector<HTMLElement>('.liquid-glass__content')!
+    expect(getComputedStyle(pane).overflow).toBe('hidden')
+    scene.setAttribute('data-liquid-glass-scene-ready', 'true')
+    expect(getComputedStyle(pane).overflow).toBe('visible')
+    expect(getComputedStyle(content).overflow).toBe('hidden')
+    scene.removeAttribute('data-liquid-glass-scene-ready')
+    expect(getComputedStyle(pane).overflow).toBe('hidden')
+  })
+
+  it('hides the sampling canvas only for ready layered scenes with a native pane', () => {
+    const { container, rerender } = render(
+      <LiquidGlassScene foreground="layered">
+        <LiquidGlass nativeContent>Content</LiquidGlass>
+      </LiquidGlassScene>
+    )
+    const scene = container.querySelector<HTMLElement>('[data-liquid-glass-scene]')!
+    const canvas = scene.querySelector<HTMLElement>('.liquid-glass-scene__canvas')!
+    scene.setAttribute('data-liquid-glass-scene-pending', 'true')
+    expect(getComputedStyle(canvas).opacity).toBe('1')
+    scene.removeAttribute('data-liquid-glass-scene-pending')
+    scene.setAttribute('data-liquid-glass-scene-ready', 'true')
+    scene.setAttribute('data-liquid-glass-layered-visible', '')
+    expect(getComputedStyle(canvas).opacity).toBe('0')
+    scene.removeAttribute('data-liquid-glass-scene-ready')
+    expect(getComputedStyle(canvas).opacity).toBe('0')
+
+    rerender(<LiquidGlassScene foreground="layered"><div>Empty scene</div></LiquidGlassScene>)
+    scene.setAttribute('data-liquid-glass-scene-ready', 'true')
+    scene.removeAttribute('data-liquid-glass-layered-visible')
+    expect(getComputedStyle(canvas).opacity).toBe('1')
+    rerender(<LiquidGlassScene><LiquidGlass>Canvas pane</LiquidGlass></LiquidGlassScene>)
+    scene.setAttribute('data-liquid-glass-scene-ready', 'true')
+    expect(getComputedStyle(canvas).opacity).toBe('1')
+  })
+
   it('hydrates server markup without replacing the root and forwards className and ref', async () => {
     const ref = createRef<HTMLDivElement>()
     const content = (

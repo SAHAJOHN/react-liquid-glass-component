@@ -429,11 +429,17 @@ export default function CanvasShowcase() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [settings, setSettings] = useState<GlassStudioProps>(createStudioSettings)
   const [convexity, setConvexity] = useState(0)
-  const settingsSnippet = `<LiquidGlass\n  {...${JSON.stringify(settings, null, 2)}}\n  convexity={${convexity}}\n/>`
+  const [interactiveGlare, setInteractiveGlare] = useState(false)
+  const glareAngleMode = interactiveGlare ? 'interactive' : 'manual'
+  const settingsSnippet = `<LiquidGlass\n  {...${JSON.stringify(settings, null, 2)}}\n  convexity={${convexity}}\n  glareAngleMode="${glareAngleMode}"\n/>`
 
   return (
     <>
-      <CanvasShowcaseStyled background="#101c2b">
+      <CanvasShowcaseStyled
+        background="#101c2b"
+        maxPixelRatio={Number.MAX_SAFE_INTEGER}
+        maxCanvasPixels={16_777_216}
+      >
         <svg
           className="canvas-showcase__backdrop"
           viewBox="0 0 1000 1000"
@@ -480,6 +486,7 @@ export default function CanvasShowcase() {
           <LiquidGlass
             {...settings}
             convexity={convexity}
+            glareAngleMode={glareAngleMode}
             className="canvas-showcase__glass canvas-showcase__hero"
             aria-labelledby="showcase-title"
           >
@@ -500,6 +507,7 @@ export default function CanvasShowcase() {
                 key={variant.title}
                 {...settings}
                 convexity={convexity}
+                glareAngleMode={glareAngleMode}
                 className="canvas-showcase__glass canvas-showcase__variant"
               >
                 <div>
@@ -514,6 +522,7 @@ export default function CanvasShowcase() {
           <LiquidGlass
             {...settings}
             convexity={convexity}
+            glareAngleMode={glareAngleMode}
             className="canvas-showcase__glass canvas-showcase__install"
             aria-label="Install package"
           >
@@ -546,6 +555,7 @@ export default function CanvasShowcase() {
                   key={card.title}
                   {...settings}
                   convexity={convexity}
+                  glareAngleMode={glareAngleMode}
                   className="canvas-showcase__glass canvas-showcase__card"
                 >
                   <span className="canvas-showcase__number" aria-hidden="true">
@@ -577,18 +587,22 @@ export default function CanvasShowcase() {
           current="showcase"
           settings={settings}
           convexity={convexity}
+          glareAngleMode={glareAngleMode}
           onMenuOpenChange={setMenuOpen}
         />
       </CanvasShowcaseStyled>
       <div hidden={menuOpen}>
         <GlassControls
           settings={settings}
+          interactiveGlare={interactiveGlare}
+          onInteractiveGlareChange={setInteractiveGlare}
           onSettingsChange={setSettings}
           convexity={convexity}
           onConvexityChange={setConvexity}
           onReset={() => {
             setSettings(createStudioSettings())
             setConvexity(0)
+            setInteractiveGlare(false)
           }}
         />
       </div>

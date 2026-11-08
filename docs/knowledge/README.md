@@ -3,7 +3,7 @@ title: 'react-liquid-glass-component documentation'
 project: 'react-liquid-glass-component'
 type: 'hub'
 status: '✅ Active'
-last_updated: '2026-11-02'
+last_updated: '2026-11-08'
 ai_context: 'Entry point for the current API, architecture, setup, and demo notes.'
 related:
   - 'architecture'
@@ -18,7 +18,7 @@ tags:
 
 # Documentation hub
 
-This folder documents the published `0.3.0` package and the Next.js demo in `web/`.
+This folder documents the current `0.4.x` package and the Next.js demo in `web/`.
 
 ## Start here
 

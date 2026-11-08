@@ -7,12 +7,14 @@ import { LiquidGlassSceneContext, type SceneController } from '../scene/context'
 function fixture(initialProps: ComponentProps<typeof LiquidGlass> = {}) {
   const cleanups: ReturnType<typeof vi.fn>[] = []
   const controller: SceneController = {
+    layered: false,
     register: vi.fn(() => {
       const cleanup = vi.fn()
       cleanups.push(cleanup)
       return cleanup
     }),
     update: vi.fn(),
+    repaint: vi.fn(),
   }
   const renderGlass = (props: ComponentProps<typeof LiquidGlass>) => (
     <LiquidGlassSceneContext.Provider value={controller}>

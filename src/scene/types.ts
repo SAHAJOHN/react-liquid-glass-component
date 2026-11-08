@@ -18,6 +18,8 @@ export interface SceneClip {
 }
 
 export interface GlassOptions {
+  /** Destination for the pane's pre-content snapshot in layered presentation. */
+  nativeLayer?: HTMLCanvasElement
   radius: number
   displacement: readonly [number, number, number]
   blur: number
@@ -27,6 +29,7 @@ export interface GlassOptions {
   thickness?: number
   magnification?: number
   studio?: GlassStudioProps
+  glareOffset?: { current: number }
   legacyTint?: boolean
   legacyRadius?: boolean
   map?: DisplacementMapOptions & { xChannel: 'R' | 'G' | 'B'; yChannel: 'R' | 'G' | 'B' }
@@ -55,6 +58,7 @@ export type SceneOpacityPaint =
   | (SceneBase & { kind: 'solid'; radius: number; color: SceneColor })
 export type SceneGlass = SceneBase & {
   kind: 'glass'
+  nativeLayer?: HTMLCanvasElement
   radius: number
   displacement: readonly [number, number, number]
   blur: number
@@ -63,6 +67,7 @@ export type SceneGlass = SceneBase & {
   thickness?: number
   magnification?: number
   studio?: GlassStudioProps
+  glareOffset?: { current: number }
   map?: { bitmap: HTMLCanvasElement; xChannel: 0 | 1 | 2; yChannel: 0 | 1 | 2 }
 }
 export type SceneBackdrop = SceneBase & {

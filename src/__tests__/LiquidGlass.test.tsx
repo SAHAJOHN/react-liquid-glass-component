@@ -17,6 +17,27 @@ describe('LiquidGlass', () => {
     expect(screen.getByText('hello')).toBeInTheDocument()
   })
 
+  it('enables interaction listeners only for interactive managed glass', () => {
+    const add = vi.spyOn(window, 'addEventListener')
+    const remove = vi.spyOn(window, 'removeEventListener')
+    const scene = { layered: false, register: vi.fn(() => () => {}), update: vi.fn(), repaint: vi.fn() }
+    const { rerender, unmount } = render(
+      <LiquidGlassSceneContext.Provider value={scene}>
+        <LiquidGlass />
+      </LiquidGlassSceneContext.Provider>
+    )
+    expect(add.mock.calls.some(([name]) => name === 'touchstart')).toBe(false)
+    rerender(
+      <LiquidGlassSceneContext.Provider value={scene}>
+        <LiquidGlass glareAngleMode="interactive" />
+      </LiquidGlassSceneContext.Provider>
+    )
+    expect(add.mock.calls.filter(([name]) => name === 'touchstart')).toHaveLength(1)
+    expect(add.mock.calls.some(([name]) => name === 'deviceorientation')).toBe(false)
+    unmount()
+    expect(remove.mock.calls.filter(([name]) => name === 'touchstart')).toHaveLength(1)
+  })
+
   it('applies default liquid-glass class', () => {
     const { container } = render(<LiquidGlass>x</LiquidGlass>)
     const root = container.firstChild as HTMLElement
@@ -193,7 +214,7 @@ describe('LiquidGlass', () => {
   })
 
   it('uses the Studio material for a managed native fallback', () => {
-    const controller = { register: vi.fn(() => vi.fn()), update: vi.fn() }
+    const controller = { layered: false, register: vi.fn(() => vi.fn()), update: vi.fn(), repaint: vi.fn() }
     const { container } = render(
       <LiquidGlassSceneContext.Provider value={controller}>
         <LiquidGlass shapeRadius={100} blurRadius={3} tint={{ r: 22, g: 35, b: 43, a: 0.75 }} />
@@ -210,7 +231,7 @@ describe('LiquidGlass', () => {
   })
 
   it('keeps legacy color and radius precedence for managed panes', () => {
-    const controller = { register: vi.fn(() => vi.fn()), update: vi.fn() }
+    const controller = { layered: false, register: vi.fn(() => vi.fn()), update: vi.fn(), repaint: vi.fn() }
     const { container } = render(
       <LiquidGlassSceneContext.Provider value={controller}>
         <LiquidGlass glassColor="#ff6b6b" backgroundOpacity={0.5} borderRadius={12} />
@@ -227,7 +248,7 @@ describe('LiquidGlass', () => {
   })
 
   it('only applies the Studio fallback treatment while the scene is not ready or pending', () => {
-    const controller = { register: vi.fn(() => vi.fn()), update: vi.fn() }
+    const controller = { layered: false, register: vi.fn(() => vi.fn()), update: vi.fn(), repaint: vi.fn() }
     const { container } = render(
       <div data-liquid-glass-scene="">
         <LiquidGlassSceneContext.Provider value={controller}>

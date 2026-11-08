@@ -127,6 +127,66 @@ function fixture() {
 afterEach(() => vi.restoreAllMocks())
 
 describe('compiler stacking hoist integration', () => {
+  it('preserves authored stacking when the layered scene boosts a pane after becoming ready', () => {
+    const { root, header, pane, nav, styles, compile, compiler } = fixture()
+    const host = document.createElement('div')
+    host.setAttribute('data-liquid-glass-foreground-mode', 'layered')
+    styles.set(host, style('transparent'))
+    host.append(root)
+    header.append(pane)
+    const paneStyle = styles.get(pane)!
+    paneStyle.position = 'relative'
+    let authoredZ = 'auto'
+    Object.defineProperty(paneStyle, 'zIndex', {
+      configurable: true,
+      get: () =>
+        host.hasAttribute('data-liquid-glass-scene-ready') &&
+        !host.hasAttribute('data-liquid-glass-measuring-layers') &&
+        authoredZ === 'auto'
+          ? '2'
+          : authoredZ,
+      set: (value: string) => {
+        authoredZ = value
+      },
+    })
+    glass.nativeLayer = document.createElement('canvas')
+    try {
+      const before = compile()
+      expect(before.issues).not.toContain(stackingError)
+      host.setAttribute('data-liquid-glass-scene-ready', 'true')
+      const ready = compile()
+      expect(ready.issues).toEqual(before.issues)
+      const order = (items: typeof ready.scene.items) =>
+        items.map((item) => (item.kind === 'sprite' ? item.bitmap.dataset.paint : item.kind))
+      expect(order(ready.scene.items)).toEqual(order(before.scene.items))
+      expect(host).not.toHaveAttribute('data-liquid-glass-measuring-layers')
+      expect(styles.get(nav)!.zIndex).toBe('100')
+
+      // A real authored change to 2 must not be mistaken for the layer boost.
+      authoredZ = '2'
+      expect(compile().issues).toContain(stackingError)
+      authoredZ = '100'
+      expect(compile().issues).toContain(stackingError)
+    } finally {
+      delete glass.nativeLayer
+      compiler.dispose()
+    }
+  })
+
+  it('retains the live glare offset without recompiling the scene', () => {
+    const offset = { current: 0 }
+    glass.glareOffset = offset
+    try {
+      const { compile, compiler } = fixture()
+      const item = compile().scene.items.find((candidate) => candidate.kind === 'glass')
+      expect(item?.kind === 'glass' && item.glareOffset).toBe(offset)
+      offset.current = 12
+      expect(item?.kind === 'glass' && item.glareOffset?.current).toBe(12)
+      compiler.dispose()
+    } finally {
+      delete glass.glareOffset
+    }
+  })
   it('reuses element bounds within one compile and reads fresh layout on the next', () => {
     const { compile, content, compiler } = fixture()
     const bounds = vi.mocked(content.getBoundingClientRect)

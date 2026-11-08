@@ -3,7 +3,7 @@ title: 'Setup & Workflow'
 project: 'react-liquid-glass-component'
 type: 'reference'
 status: '✅ Active'
-last_updated: '2026-11-02'
+last_updated: '2026-11-08'
 ai_context: 'Development setup, build pipeline, testing, and npm publish workflow for react-liquid-glass-component.'
 related:
   - 'architecture'
@@ -54,9 +54,14 @@ repeat the root build/sync step. The sync updates only `dist/`; if the library's
 `package.json` exports or version change, reinstall the local dependency and verify the
 installed `package.json` reflects those changes as well.
 
-Version `0.3.0` adds the managed `LiquidGlassScene`, Studio material exports, and
-`ScrollEdge` subpath. Published npm `0.2.1` does not contain those exports. Restore the
-published dependency and run `yarn install` inside `web/` before deploying the demo.
+The current `0.4.x` release includes the managed scene, Studio material exports, interactive
+glare, layered foreground experiments, the `maxCanvasPixels` scene budget, and the `ScrollEdge`
+subpath. Restore the published dependency and run `yarn install` inside `web/` before deploying
+the demo.
+
+`maxCanvasPixels` defaults to 2,000,000 and is capped at 4096². Raising it can make a scene use
+device DPR on high-density displays, but it also increases WebGL memory and render cost. Treat it
+as an explicit device-tested setting rather than a universal quality switch.
 
 ---
 

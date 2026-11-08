@@ -115,6 +115,16 @@ For a fixed navigation bar whose logo and controls must stay browser-sharp, opt 
 
 `foreground="native"` is opt-in and only applies to a glass-only scene with a `canvasContainer`. The marked subtree stays as normal HTML above the scene canvas, so text, logos, links, buttons, focus rings, and pointer interaction are not rasterized into the canvas. Mark the foreground controls only. Do not put the marker on the glass pane or on page content that should be refracted. Keep the container shell transparent and place marked controls above the canvas and every managed pane using CSS stacking; unsupported content still follows the normal native fallback path.
 
+For a regular scene, the experimental layered mode keeps pane contents as native HTML while retaining their captured image for other panes to refract:
+
+```tsx
+<LiquidGlassScene foreground="layered">
+  <LiquidGlass nativeContent>Sharp text and controls</LiquidGlass>
+</LiquidGlassScene>
+```
+
+If any pane uses `nativeContent`, enable it on every managed pane in that scene. The page outside the panes is displayed as native HTML, so apply its background in CSS; the `background` prop only sets the captured scene's base color. Layered mode currently supports untransformed, opaque panes without borders or stacking-context ancestors between the pane and scene content. Other overlapping DOM content and shadows extending outside panes can have incorrect stacking; check your layout before using this experimental mode. It copies a snapshot for each visible pane, so test performance on your target devices. Unsupported detected layouts use the normal scene fallback.
+
 Scene rendering supports common text, images, SVG, video, canvas, backgrounds, borders, and layout changes. Some CSS and DOM combinations cannot be captured safely. In that case the scene keeps the original HTML visible and reports `fallback` through `onStatusChange`; the native fallback does not refract the background. Cross-origin media needs CORS permission. See the [scene support and limitations](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/api.md#liquidglassscene) for the supported single-leaf text effects, color-only image filter, bounded blurred image, and regional deferral rules.
 
 Focused text inputs (`text`, `search`, `email`, `url`, and `tel`) and textareas can stay native while the scene remains 3D when their paint bounds, including focus effects, are proven outside every expanded glass sampling region. If an active control or its focus ring reaches a glass region, or its bounds cannot be proven, the scene keeps native HTML fallback so the browser can render the caret, selection, and IME correctly. Password and number inputs remain native fallback paths.
@@ -133,9 +143,10 @@ through the native fallback path.
 | --- | --- | --- |
 | `background` | Page or wrapper background | Base color behind the scene. |
 | `maxPixelRatio` | `2` | Limits canvas backing resolution. |
+| `maxCanvasPixels` | `2000000` | Limits total canvas backing pixels; larger values increase GPU memory use. |
 | `presentation` | `'scene'` | Choose `'scene'` or `'glass-only'`. |
 | `canvasContainer` | `undefined` | Fixed container for a glass-only canvas. |
-| `foreground` | `'canvas'` | Set to `'native'` with `presentation="glass-only"` to keep marked controls as sharp HTML above the canvas. |
+| `foreground` | `'canvas'` | Use `'native'` for marked glass-only controls or experimental `'layered'` for native pane content in a regular scene. |
 | `onStatusChange` | `undefined` | Receives `ready`, `pending`, or `fallback`. |
 | `includeStyles` | `true` | Include the scene's CSS in rendered markup. |
 
@@ -166,6 +177,14 @@ export function MaterialExample() {
 ```
 
 `refThickness` controls the refracting edge, `refFactor` changes how it bends the background, and `refDispersion` adds color separation. `blurRadius` and `tint` adjust the material. `GLASS_STUDIO_DEFAULTS` and `GLASS_STUDIO_RANGES` are exported for building controls. See the [full list of props and defaults](https://github.com/SAHAJOHN/react-liquid-glass-component/blob/main/docs/knowledge/api.md#liquidglass).
+
+Set `glareAngleMode="interactive"` on a managed `LiquidGlass` to move the glare with a touch, including while scrolling, or with the mouse on desktop. Scrolling alone does not move the glare. `glareAngle` sets the base angle. This mode does not use device sensors or ask for permission, and respects reduced-motion preferences.
+
+```tsx
+<LiquidGlass glareAngle={-45} glareAngleMode="interactive">
+  Content
+</LiquidGlass>
+```
 
 ## ScrollEdge
 

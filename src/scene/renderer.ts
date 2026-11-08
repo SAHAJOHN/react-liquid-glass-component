@@ -1,6 +1,7 @@
 import type {
   GlassScene,
   SceneFrame,
+  SceneGlass,
   SceneItem,
   SceneOpacityPaint,
   SceneRect,
@@ -12,6 +13,7 @@ import { proveBackdropSampling } from './backdrop-sampling'
 import { samplingRelationToRegions, validSamplingRegion } from './sampling-boundary'
 import { studioSdfSource } from './studio-shader'
 import { MAX_SCENE_CLIPS, packSceneClips, sceneClips } from './clip-stack'
+import { copyLayerSnapshot, planLayerAtlas, type LayerAtlasSlot } from './layered-snapshot'
 
 const vertexSource = `
 attribute vec2 a_position;
@@ -353,11 +355,15 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
   let mediaStaging:
     | { source: HTMLCanvasElement; canvas: HTMLCanvasElement; context: CanvasRenderingContext2D }
     | undefined
+  let layerStaging:
+    | { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D }
+    | undefined
   let program: WebGLProgram | undefined
   let buffer: WebGLBuffer | null = null
   let framebuffer: WebGLFramebuffer | null = null
   let groupFramebuffer: WebGLFramebuffer | null = null
   let scene: GlassScene | null = null
+  let layeredItems: SceneGlass[] = []
   let disposed = false
   let failed = false
   let studioPass: ReturnType<typeof createStudioPass> | undefined
@@ -383,11 +389,17 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
     for (const entry of media.values()) entry.stop()
     media.clear()
     releaseMediaStaging()
+    if (layerStaging) {
+      layerStaging.canvas.width = 0
+      layerStaging.canvas.height = 0
+      layerStaging = undefined
+    }
     if (framebuffer) context.deleteFramebuffer(framebuffer)
     if (groupFramebuffer) context.deleteFramebuffer(groupFramebuffer)
     if (buffer) context.deleteBuffer(buffer)
     if (program) context.deleteProgram(program)
     scene = null
+    layeredItems = []
   }
 
   const createTexture = () => {
@@ -468,6 +480,47 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
     let groupTexture: WebGLTexture | undefined
     let groupWidth = 0
     let groupHeight = 0
+    let layerAtlas: WebGLTexture | undefined
+    let layerAtlasWidth = 0
+    let layerAtlasHeight = 0
+    let layerBatchingDisabled = false
+
+    const releaseLayerAtlas = () => {
+      if (layerAtlas) {
+        context.deleteTexture(layerAtlas)
+        textures.delete(layerAtlas)
+        layerAtlas = undefined
+      }
+      layerAtlasWidth = 0
+      layerAtlasHeight = 0
+      if (layerStaging) {
+        layerStaging.canvas.width = 0
+        layerStaging.canvas.height = 0
+        layerStaging = undefined
+      }
+    }
+
+    const prepareLayerAtlas = () => {
+      if (!layerStaging) {
+        const staging = document.createElement('canvas')
+        const stagingContext = staging.getContext('2d')
+        if (!stagingContext) return false
+        layerStaging = { canvas: staging, context: stagingContext }
+      }
+      if (!layerAtlas) layerAtlas = createTexture()
+      if (layerAtlasWidth !== targetWidth || layerAtlasHeight !== targetHeight) {
+        context.activeTexture(context.TEXTURE0)
+        context.bindTexture(context.TEXTURE_2D, layerAtlas)
+        context.texImage2D(context.TEXTURE_2D, 0, context.RGBA, targetWidth, targetHeight, 0,
+          context.RGBA, context.UNSIGNED_BYTE, null)
+        if (context.getError() !== context.NO_ERROR) return false
+        layerAtlasWidth = targetWidth
+        layerAtlasHeight = targetHeight
+      }
+      if (layerStaging.canvas.width !== targetWidth) layerStaging.canvas.width = targetWidth
+      if (layerStaging.canvas.height !== targetHeight) layerStaging.canvas.height = targetHeight
+      return true
+    }
 
     const ensureGroupTarget = () => {
       groupFramebuffer ??= context.createFramebuffer()
@@ -610,6 +663,31 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
       context.activeTexture(context.TEXTURE0)
       context.bindTexture(context.TEXTURE_2D, texture)
       context.drawArrays(context.TRIANGLE_STRIP, 0, 4)
+    }
+
+    // Present the in-progress scene while it still excludes this pane's own
+    // content. A later glass pane still samples that content from the scene
+    // framebuffer after the remaining items have been drawn.
+    const present = (viewport: SceneRect, region?: SceneRect, texture = sceneTexture) => {
+      context.bindFramebuffer(context.FRAMEBUFFER, null)
+      context.disable(context.BLEND)
+      context.disable(context.SCISSOR_TEST)
+      if (region) {
+        const scaleX = targetWidth / viewport.width
+        const scaleY = targetHeight / viewport.height
+        const left = Math.max(0, Math.floor(region.x * scaleX))
+        const right = Math.min(targetWidth, Math.ceil((region.x + region.width) * scaleX))
+        const top = Math.max(0, Math.floor(region.y * scaleY))
+        const bottom = Math.min(targetHeight, Math.ceil((region.y + region.height) * scaleY))
+        if (right <= left || bottom <= top) return
+        context.enable(context.SCISSOR_TEST)
+        context.scissor(left, targetHeight - bottom, right - left, bottom - top)
+      }
+      context.uniform1i(uniforms.clipCount, 0)
+      context.uniform1f(uniforms.opacity, 1)
+      context.uniform1f(uniforms.brightness, 1)
+      drawSprite(texture, viewport)
+      context.disable(context.SCISSOR_TEST)
     }
 
     const createMedia = (source: HTMLVideoElement | HTMLCanvasElement): MediaTexture => {
@@ -974,6 +1052,11 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
             ).filter((source): source is HTMLCanvasElement => source !== null)
           )
           scene = nextScene
+          layeredItems = nextScene.items.filter(
+            (item): item is SceneGlass =>
+              item.kind === 'glass' && !!item.nativeLayer && !!item.studio && item.opacity > 0
+          )
+          if (!layeredItems.length) releaseLayerAtlas()
         } catch (error) {
           failed = true
           throw error
@@ -994,6 +1077,40 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
           if (!resize(frame)) {
             failed = true
             return false
+          }
+          // Capture visible pane snapshots into a GPU atlas. This keeps the
+          // scene framebuffer authoritative for subsequent panes while
+          // requiring only one WebGL-to-2D copy for all panes in the frame.
+          // Large/fragmented viewports retain the original per-pane path.
+          const layerRects = !layerBatchingDisabled && layeredItems.length > 1
+            ? layeredItems.map((item) => viewportRect(item.rect, item.space, frame))
+            : []
+          const plan = layerRects.length > 1
+            ? planLayerAtlas(layerRects, frame, targetWidth, targetHeight)
+            : null
+          let batchLayers = false
+          if (plan && !layerBatchingDisabled) {
+            try {
+              batchLayers = prepareLayerAtlas()
+            } catch {
+              // An unavailable 2D staging context or allocation must not
+              // prevent the existing per-pane rendering path from working.
+              batchLayers = false
+            }
+            if (!batchLayers) {
+              // Do not repeat a failed allocation on every animation frame.
+              layerBatchingDisabled = true
+              releaseLayerAtlas()
+            }
+          }
+          const layerSlots = new Map<SceneGlass, { slot: LayerAtlasSlot; rect: SceneRect; copied: boolean }>()
+          if (batchLayers && plan) {
+            for (let index = 0; index < layeredItems.length; index += 1) {
+              const item = layeredItems[index]
+              const slot = plan[index]
+              const rect = layerRects[index]
+              if (item && slot && rect) layerSlots.set(item, { slot, rect, copied: false })
+            }
           }
           frameNumber += 1
           context.useProgram(activeProgram)
@@ -1057,6 +1174,14 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
           const regionMargin = Math.max(1, frame.height * 0.001 + 1 / frame.pixelRatio)
 
           for (const item of scene.items) {
+            // A glass surface inside an opacity group must be composited with
+            // the rest of that group before it can be presented. Never expose
+            // a partially composed layer for a grouped pane.
+            if (
+              item.kind === 'opacity-group' &&
+              item.items.some((child) => child.kind === 'glass' && child.nativeLayer)
+            )
+              return false
             const rect = viewportRect(item.rect, item.space, frame)
             const groupBoundsSafe =
               item.kind !== 'opacity-group' ||
@@ -1145,6 +1270,36 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
               context.blendEquation(context.FUNC_ADD)
               context.blendFunc(context.ONE, context.ONE_MINUS_SRC_ALPHA)
               context.enable(context.BLEND)
+              if (item.nativeLayer) {
+                const atlas = layerSlots.get(item)
+                if (batchLayers && atlas && layerAtlas) {
+                  const { slot } = atlas
+                  try {
+                    context.activeTexture(context.TEXTURE0)
+                    context.bindTexture(context.TEXTURE_2D, layerAtlas)
+                    context.copyTexSubImage2D(context.TEXTURE_2D, 0, slot.atlasX,
+                      targetHeight - slot.atlasY - slot.height, slot.sourceX,
+                      targetHeight - slot.sourceY - slot.height, slot.width, slot.height)
+                  } catch {
+                    layerBatchingDisabled = true
+                    releaseLayerAtlas()
+                    return this.render(frame)
+                  }
+                  atlas.copied = true
+                  context.bindTexture(context.TEXTURE_2D, snapshotTexture)
+                } else {
+                  present(viewport, rect)
+                  if (!copyLayerSnapshot(canvas, item.nativeLayer, rect, frame, item.studio)) return false
+                  context.bindFramebuffer(context.FRAMEBUFFER, sceneFramebuffer)
+                  // sceneTexture is attached to this framebuffer: it must not
+                  // remain bound for sampling while subsequent items are drawn.
+                  context.activeTexture(context.TEXTURE0)
+                  context.bindTexture(context.TEXTURE_2D, snapshotTexture)
+                  context.blendEquation(context.FUNC_ADD)
+                  context.blendFunc(context.ONE, context.ONE_MINUS_SRC_ALPHA)
+                  context.enable(context.BLEND)
+                }
+              }
               continue
             }
             if (
@@ -1382,6 +1537,9 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
                 return false
               continue
             }
+            // Native snapshots currently support the Studio glass path only.
+            // A legacy displacement pane must not retain a stale snapshot.
+            if (item.nativeLayer) return false
             if (!setClip(item, frame)) continue
             context.uniform4f(uniforms.rect, rect.x, rect.y, rect.width, rect.height)
             context.uniform1f(uniforms.radius, item.radius)
@@ -1449,13 +1607,56 @@ export function createSceneRenderer(canvas: HTMLCanvasElement): SceneRenderer | 
             context.drawArrays(context.TRIANGLE_STRIP, 0, 4)
           }
 
-          context.bindFramebuffer(context.FRAMEBUFFER, null)
-          context.disable(context.BLEND)
-          context.disable(context.SCISSOR_TEST)
-          context.uniform1i(uniforms.clipCount, 0)
-          context.uniform1f(uniforms.opacity, 1)
-          context.uniform1f(uniforms.brightness, 1)
-          drawSprite(sceneTexture, viewport)
+          if (batchLayers && layerAtlas && layerStaging) {
+            try {
+              // WebGL reports copy errors through its error flag, not as JS
+              // exceptions. Check once for the whole batch so bad atlas data
+              // cannot be published as a successful frame.
+              if (context.getError() !== context.NO_ERROR) throw new Error('Cannot copy layer atlas')
+              let usedWidth = 0
+              let usedHeight = 0
+              for (const entry of layerSlots.values()) {
+                if (!entry.copied) continue
+                usedWidth = Math.max(usedWidth, entry.slot.atlasX + entry.slot.width)
+                usedHeight = Math.max(usedHeight, entry.slot.atlasY + entry.slot.height)
+              }
+              if (usedWidth && usedHeight) {
+                present(
+                  viewport,
+                  {
+                    x: 0,
+                    y: 0,
+                    width: (usedWidth * frame.width) / targetWidth,
+                    height: (usedHeight * frame.height) / targetHeight,
+                  },
+                  layerAtlas
+                )
+                layerStaging.context.drawImage(
+                  canvas,
+                  0,
+                  0,
+                  usedWidth,
+                  usedHeight,
+                  0,
+                  0,
+                  usedWidth,
+                  usedHeight
+                )
+              }
+              for (const [item, entry] of layerSlots) {
+                if (!entry.copied || !item.nativeLayer || !item.studio) continue
+                if (!copyLayerSnapshot(layerStaging.canvas, item.nativeLayer, entry.rect, frame, item.studio, {
+                  x: entry.slot.atlasX - entry.slot.sourceX,
+                  y: entry.slot.atlasY - entry.slot.sourceY,
+                })) throw new Error('Cannot present layer atlas')
+              }
+            } catch {
+              layerBatchingDisabled = true
+              releaseLayerAtlas()
+              return this.render(frame)
+            }
+          }
+          present(viewport)
           return !context.isContextLost()
         } catch {
           failed = true

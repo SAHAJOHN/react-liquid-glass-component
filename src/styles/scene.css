@@ -10,6 +10,13 @@
   display: flow-root;
 }
 
+/* Layered panes rise out of the scene content stacking context. Their own
+   ancestor paths must not trap them beneath the scene canvas. */
+:where([data-liquid-glass-foreground-mode='layered'][data-liquid-glass-scene-ready='true'])
+  > .liquid-glass-scene__content {
+  z-index: auto;
+}
+
 :where([data-liquid-glass-scene]) .liquid-glass-scene__canvas {
   position: fixed;
   top: 0;
@@ -25,4 +32,13 @@
 :where([data-liquid-glass-scene][data-liquid-glass-scene-pending='true'])
   .liquid-glass-scene__canvas {
   opacity: 1;
+}
+
+/* A layered scene keeps the WebGL output as its sampling source, but native
+   panes present their own snapshots. Showing both paints ghost copies while
+   compositor scrolling moves the DOM before the next WebGL frame. Keep the
+   canvas visible for empty scenes and for pending/fallback presentations. */
+:where([data-liquid-glass-foreground-mode='layered'][data-liquid-glass-scene-ready='true'][data-liquid-glass-layered-visible])
+  > .liquid-glass-scene__canvas {
+  opacity: 0;
 }

@@ -108,15 +108,205 @@ function fixture() {
   ])
   for (const [element, rect] of bounds)
     vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(rect)
-  return { root, outside, nav, pane, foreground, child, styles }
+  return { root, outside, nav, pane, foreground, child, styles, makeStyle }
 }
 
 afterEach(() => {
   document.body.replaceChildren()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('native foreground scene compilation', () => {
+  it('probes the internal content wrapper in its ready state and preserves author stacking', () => {
+    const { root, nav, pane, styles, makeStyle } = fixture()
+    const host = document.createElement('div')
+    const content = document.createElement('div')
+    host.setAttribute('data-liquid-glass-scene', '')
+    host.setAttribute('data-liquid-glass-foreground-mode', 'layered')
+    content.className = 'liquid-glass-scene__content'
+    document.body.append(host)
+    host.append(content)
+    content.append(root)
+    styles.set(host, makeStyle())
+    const contentStyle = makeStyle({ position: 'relative' })
+    let readyZIndex = 'auto'
+    Object.defineProperty(contentStyle, 'zIndex', {
+      configurable: true,
+      get: () => host.hasAttribute('data-liquid-glass-scene-ready') ? readyZIndex : '0',
+    })
+    styles.set(content, contentStyle)
+    styles.get(nav)!.position = 'static'
+    styles.get(pane)!.position = 'relative'
+    const compiler = createSceneCompiler(() => {})
+    const panes = new Map<HTMLElement, GlassOptions>([
+      [pane, { ...options, nativeLayer: document.createElement('canvas') }],
+    ])
+    const compile = () => compiler.compile(host, panes, frame, 'white').issues
+    const ancestor = 'Layered foreground cannot use stacking-context ancestors'
+    expect(compile()).not.toContain(ancestor)
+    expect(host).not.toHaveAttribute('data-liquid-glass-scene-ready')
+
+    readyZIndex = '0'
+    expect(compile()).toContain(ancestor)
+    expect(host).not.toHaveAttribute('data-liquid-glass-scene-ready')
+    readyZIndex = 'auto'
+    const customAncestor = styles.get(nav)!
+    customAncestor.position = 'relative'
+    customAncestor.zIndex = '0'
+    expect(compile()).toContain(ancestor)
+
+    customAncestor.position = 'static'
+    customAncestor.zIndex = 'auto'
+    host.setAttribute('data-liquid-glass-scene-ready', 'true')
+    expect(compile()).not.toContain(ancestor)
+    readyZIndex = '0'
+    expect(compile()).toContain(ancestor)
+    expect(host).toHaveAttribute('data-liquid-glass-scene-ready', 'true')
+    compiler.dispose()
+  })
+
+  it('guards layered pane alignment and stacking without changing normal scenes', () => {
+    vi.stubGlobal('DOMMatrixReadOnly', class {
+      is2D = true
+      a = 1
+      b = 0
+      c = 0
+      d = 1
+    })
+    const { root, nav, pane, styles } = fixture()
+    const host = document.createElement('div')
+    document.body.append(host)
+    host.append(root)
+    host.setAttribute('data-liquid-glass-foreground-mode', 'layered')
+    const paneStyle = styles.get(pane)!
+    const parentStyle = styles.get(nav)!
+    parentStyle.position = 'static'
+    paneStyle.position = 'relative'
+    const compiler = createSceneCompiler(() => {})
+    const panes = new Map<HTMLElement, GlassOptions>([
+      [pane, { ...options, nativeLayer: document.createElement('canvas') }],
+    ])
+    const compile = () => compiler.compile(root, panes, frame, 'white').issues
+    const border = 'Layered foreground requires panes without borders'
+    const transform = 'Layered foreground requires untransformed panes'
+    const stacking = 'Layered foreground requires pane stacking above the scene canvas'
+    const ancestor = 'Layered foreground cannot use stacking-context ancestors'
+    expect(compile()).not.toContain(border)
+    expect(compile()).not.toContain(transform)
+    expect(compile()).not.toContain(stacking)
+    expect(compile()).not.toContain(ancestor)
+
+    paneStyle.borderLeftWidth = '1px'
+    expect(compile()).toContain(border)
+    paneStyle.borderLeftWidth = '0px'
+    paneStyle.transform = 'matrix(1, 0, 0, 1, 10, 0)'
+    expect(compile()).toContain(transform)
+    paneStyle.transform = 'none'
+    paneStyle.scale = '1.1'
+    expect(compile()).toContain(transform)
+    paneStyle.scale = 'none'
+    paneStyle.rotate = '5deg'
+    expect(compile()).toContain(transform)
+    paneStyle.rotate = 'none'
+    paneStyle.translate = '1px'
+    expect(compile()).toContain(transform)
+    paneStyle.translate = 'none'
+    for (const zIndex of ['0', '1', '-1']) {
+      paneStyle.zIndex = zIndex
+      expect(compile()).toContain(stacking)
+    }
+    paneStyle.zIndex = 'auto'
+    paneStyle.position = 'static'
+    expect(compile()).toContain(stacking)
+    paneStyle.position = 'relative'
+    for (const [key, value] of [
+      ['opacity', '0.5'],
+      ['isolation', 'isolate'],
+      ['transform', 'matrix(1, 0, 0, 1, 1, 0)'],
+    ] as const) {
+      const previous = parentStyle[key]
+      parentStyle[key] = value
+      expect(compile()).toContain(ancestor)
+      parentStyle[key] = previous
+    }
+    parentStyle.position = 'relative'
+    parentStyle.zIndex = '0'
+    expect(compile()).toContain(ancestor)
+    parentStyle.position = 'static'
+    parentStyle.zIndex = 'auto'
+
+    // Existing modes do not inherit the stricter layered layout contract.
+    host.setAttribute('data-liquid-glass-foreground-mode', 'native')
+    paneStyle.borderLeftWidth = '1px'
+    expect(compile()).not.toContain(border)
+    compiler.dispose()
+  })
+
+  it('allows a root-level fixed navbar with authored z-index 100', () => {
+    const { root, nav, styles } = fixture()
+    const host = document.createElement('div')
+    document.body.append(host)
+    host.append(root)
+    host.setAttribute('data-liquid-glass-foreground-mode', 'layered')
+    styles.get(nav)!.zIndex = '100'
+    const compiler = createSceneCompiler(() => {})
+    const panes = new Map<HTMLElement, GlassOptions>([
+      [nav, { ...options, nativeLayer: document.createElement('canvas') }],
+    ])
+    const issues = compiler.compile(root, panes, frame, 'white').issues
+    expect(issues).not.toContain('Layered foreground requires pane stacking above the scene canvas')
+    expect(issues).not.toContain('Layered foreground cannot use stacking-context ancestors')
+    compiler.dispose()
+  })
+
+  it('rejects mixed layered and canvas panes only in a layered scene', () => {
+    const { root, pane, foreground } = fixture()
+    const host = document.createElement('div')
+    document.body.append(host)
+    host.append(root)
+    const layer = document.createElement('canvas')
+    const secondLayer = document.createElement('canvas')
+    const compiler = createSceneCompiler(() => {})
+    const mixed = new Map<HTMLElement, GlassOptions>([
+      [pane, { ...options, nativeLayer: layer }],
+      [foreground, options],
+    ])
+    const reason = 'Layered foreground requires nativeContent on every managed pane'
+
+    // The ordinary canvas and anchored native modes keep their existing rules.
+    expect(compiler.compile(root, mixed, frame, 'white').issues).not.toContain(reason)
+    host.setAttribute('data-liquid-glass-foreground-mode', 'native')
+    expect(compiler.compile(root, mixed, frame, 'white').issues).not.toContain(reason)
+
+    host.setAttribute('data-liquid-glass-foreground-mode', 'layered')
+    expect(compiler.compile(root, mixed, frame, 'white').issues).toContain(reason)
+    mixed.set(foreground, { ...options, nativeLayer: secondLayer })
+    expect(compiler.compile(root, mixed, frame, 'white').issues).not.toContain(reason)
+    mixed.set(pane, options)
+    mixed.set(foreground, options)
+    expect(compiler.compile(root, mixed, frame, 'white').issues).not.toContain(reason)
+    compiler.dispose()
+  })
+
+  it('retains pane content in the sampling scene and forwards the layered destination', () => {
+    const { root, pane, foreground, styles } = fixture()
+    const layer = document.createElement('canvas')
+    layer.setAttribute('data-liquid-glass-scene-canvas', '')
+    const paneStyle = styles.get(pane)
+    if (!paneStyle) throw new Error('Missing pane style')
+    styles.set(layer, paneStyle)
+    pane.append(layer, foreground)
+    const compiler = createSceneCompiler(() => {})
+    const result = compiler.compile(root, new Map([[pane, { ...options, nativeLayer: layer }]]), frame, 'white')
+    expect(result.issues).toEqual([])
+    const glass = result.scene.items.find((item) => item.kind === 'glass')
+    expect(glass).toMatchObject({ nativeLayer: layer })
+    const rects = result.scene.items.filter((item) => item.kind === 'sprite').map((item) => item.rect)
+    expect(rects).toContainEqual({ x: 30, y: 20, width: 60, height: 40 })
+    compiler.dispose()
+  })
+
   it('skips marked foreground subtree in the fixed container while preserving the pane and unrelated marked background', () => {
     const { root, nav, pane } = fixture()
     const compiler = createSceneCompiler(() => {}, nav)

@@ -14,6 +14,7 @@ import {
 import { GlassStyles } from './styles'
 import { useWebGLBackdrop } from './use-webgl-backdrop'
 import { LiquidGlassSceneContext } from './scene/context'
+import { interactiveGlareOffset, subscribeInteractiveGlare } from './scene/interactive-glare'
 import { createDisplacementMapSvg } from './displacement-map'
 import {
   GLASS_STUDIO_DEFAULTS,
@@ -24,6 +25,10 @@ import {
 
 export interface LiquidGlassProps
   extends HTMLAttributes<HTMLDivElement>, Partial<GlassStudioProps> {
+  /** Keep the pane's children as native HTML in a layered scene. */
+  nativeContent?: boolean
+  /** Follow touch or mouse position inside a scene. Default 'manual'. */
+  glareAngleMode?: 'manual' | 'interactive'
   /** Render built-in styles. Disable when importing the package stylesheet separately. Default true. */
   includeStyles?: boolean
   /** Optional Studio size aliases. Omit to keep CSS/width/height sizing. */
@@ -103,6 +108,8 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
     xChannel = 'R',
     yChannel = 'G',
     mixBlendMode = 'difference',
+    glareAngleMode = 'manual',
+    nativeContent = false,
     ...rest
   } = props as LiquidGlassProps & { as?: ElementType }
   const tintR = props.tint?.r
@@ -189,6 +196,12 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
   for (const key of GLASS_STUDIO_PROP_KEYS) delete rest[key]
   const internalRef = useRef<HTMLDivElement | null>(null)
   const scene = useContext(LiquidGlassSceneContext)
+  const layered = !!scene?.layered && nativeContent
+  const nativeLayer = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    if (!scene || glareAngleMode !== 'interactive') return
+    return subscribeInteractiveGlare(scene.repaint)
+  }, [scene, glareAngleMode])
   const bodyMagnification =
     convexity === undefined
       ? magnification
@@ -233,6 +246,8 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
       thickness,
       magnification: bodyMagnification,
       studio,
+      ...(layered && nativeLayer.current ? { nativeLayer: nativeLayer.current } : {}),
+      ...(glareAngleMode === 'interactive' ? { glareOffset: interactiveGlareOffset } : {}),
       legacyTint,
       legacyRadius,
       map: {
@@ -248,6 +263,7 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
     })
   }, [
     scene,
+    layered,
     borderRadius,
     distortionScale,
     redOffset,
@@ -267,6 +283,7 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
     xChannel,
     yChannel,
     studio,
+    glareAngleMode,
     legacyTint,
     legacyRadius,
   ])
@@ -402,7 +419,7 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
   return (
     <Root
       ref={setRef}
-      className={`liquid-glass-root liquid-glass ${svgSupported ? 'liquid-glass--svg' : 'liquid-glass--fallback'} ${webglReady ? 'liquid-glass--webgl' : ''} ${scene ? 'liquid-glass--managed' : ''} ${className}`}
+      className={`liquid-glass-root liquid-glass ${svgSupported ? 'liquid-glass--svg' : 'liquid-glass--fallback'} ${webglReady ? 'liquid-glass--webgl' : ''} ${scene ? 'liquid-glass--managed' : ''} ${layered ? 'liquid-glass--layered' : ''} ${className}`}
       style={containerStyle}
       {...rest}
     >
@@ -488,6 +505,16 @@ const LiquidGlass = forwardRef<HTMLDivElement, LiquidGlassProps>((props, forward
 
           <canvas ref={canvasRef} className="liquid-glass__webgl" aria-hidden="true" />
         </>
+      )}
+      {layered && (
+        <canvas
+          ref={nativeLayer}
+          className="liquid-glass__native-layer"
+          data-liquid-glass-scene-canvas=""
+          aria-hidden="true"
+          width={0}
+          height={0}
+        />
       )}
       <div className="liquid-glass__content">{children}</div>
       {!scene && includeStyles && <GlassStyles />}

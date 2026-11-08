@@ -262,6 +262,8 @@ function RangeControl({
 
 interface GlassControlsProps {
   settings: GlassStudioProps
+  interactiveGlare: boolean
+  onInteractiveGlareChange: (enabled: boolean) => void
   onSettingsChange: Dispatch<SetStateAction<GlassStudioProps>>
   convexity: number
   onConvexityChange: (value: number) => void
@@ -270,6 +272,8 @@ interface GlassControlsProps {
 
 export default function GlassControls({
   settings,
+  interactiveGlare,
+  onInteractiveGlareChange,
   onSettingsChange,
   convexity,
   onConvexityChange,
@@ -336,6 +340,18 @@ export default function GlassControls({
                   />
                 )
               })}
+              {group.id === 'glare' && (
+                <label className="glass-controls__check" htmlFor={`${id}-interactive-glare`}>
+                  Interactive glare (touch and hover)
+                  <input
+                    id={`${id}-interactive-glare`}
+                    className="glass-controls__checkbox"
+                    type="checkbox"
+                    checked={interactiveGlare}
+                    onChange={(event) => onInteractiveGlareChange(event.currentTarget.checked)}
+                  />
+                </label>
+              )}
               {group.id === 'blur' && (
                 <label className="glass-controls__check" htmlFor={`${id}-blurEdge`}>
                   Blur Edge

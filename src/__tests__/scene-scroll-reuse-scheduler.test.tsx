@@ -181,7 +181,8 @@ describe('retained scroll capture scheduling', () => {
 
   async function fixture(
     liveCanvas = false,
-    configure?: (source: HTMLElement, pane: HTMLElement) => void
+    configure?: (source: HTMLElement, pane: HTMLElement) => void,
+    autoGlare = false
   ) {
     function Fixture() {
       const [nav, setNav] = useState<HTMLElement | null>(null)
@@ -191,7 +192,12 @@ describe('retained scroll capture scheduling', () => {
             <canvas data-testid="media" />
           </div>
           <nav ref={setNav} style={{ position: 'fixed' }}>
-            <LiquidGlass shapeRadius={100} shapeRoundness={2} shadowFactor={0}>
+            <LiquidGlass
+              shapeRadius={100}
+              shapeRoundness={2}
+              shadowFactor={0}
+              glareAngleMode={autoGlare ? 'interactive' : 'manual'}
+            >
               Menu
             </LiquidGlass>
           </nav>
@@ -235,6 +241,25 @@ describe('retained scroll capture scheduling', () => {
       },
     }
   }
+
+  it('redraws a still scene on pointer interaction without recompiling the DOM', async () => {
+    await fixture(false, undefined, true)
+    const compiles = compile.mock.calls.length
+    const renders = renderFrame.mock.calls.length
+    const event = new Event('pointermove')
+    Object.defineProperties(event, {
+      pointerId: { value: 1 },
+      isPrimary: { value: true },
+      pointerType: { value: 'mouse' },
+      clientX: { value: 390 },
+      clientY: { value: 700 },
+    })
+    act(() => window.dispatchEvent(event))
+    tick()
+    tick()
+    expect(renderFrame).toHaveBeenCalledTimes(renders + 1)
+    expect(compile).toHaveBeenCalledTimes(compiles)
+  })
 
   it('warms one padded capture then renders current scroll coordinates without compiling again', async () => {
     const { host, scroll } = await fixture()

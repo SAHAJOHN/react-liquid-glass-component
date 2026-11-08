@@ -45,11 +45,13 @@ interface Options {
   canvas: RefObject<HTMLCanvasElement>
   glasses: MutableRefObject<Map<HTMLElement, GlassOptions>>
   invalidate: MutableRefObject<() => void>
+  repaint: MutableRefObject<() => void>
   background: string | undefined
   maxPixelRatio: number
+  maxCanvasPixels: number
   presentation: 'scene' | 'glass-only'
   canvasContainer: HTMLElement | null
-  foreground: 'canvas' | 'native'
+  foreground: 'canvas' | 'native' | 'layered'
   onStatusChange: ((state: LiquidGlassSceneStatus) => void) | undefined
 }
 
@@ -215,8 +217,10 @@ export function useScene(options: Options): void {
     canvas,
     glasses,
     invalidate,
+    repaint,
     background,
     maxPixelRatio,
+    maxCanvasPixels,
     presentation,
     canvasContainer,
     foreground,
@@ -234,6 +238,7 @@ export function useScene(options: Options): void {
     const diagnostics = createPerformanceDiagnostics()
     let disposed = false
     let dirty = true
+    let needsRepaint = false
     let frameRequest: number | undefined
     let compiled: CompiledScene | undefined
     let scrollCapture: ScrollCapture | undefined
@@ -296,8 +301,27 @@ export function useScene(options: Options): void {
       }
     }
     invalidate.current = markDirty
+    repaint.current = () => {
+      needsRepaint = true
+      start()
+    }
 
     const report = (state: LiquidGlassSceneStatus) => {
+      let showLayeredOutput =
+        state.status === 'ready' &&
+        foreground === 'layered' &&
+        presentation === 'scene' &&
+        !canvasContainer &&
+        glasses.current.size > 0
+      if (showLayeredOutput) {
+        for (const pane of glasses.current.values()) {
+          if (!pane.nativeLayer) {
+            showLayeredOutput = false
+            break
+          }
+        }
+      }
+      host.toggleAttribute('data-liquid-glass-layered-visible', showLayeredOutput)
       const key = JSON.stringify(state)
       if (key === statusKey) return
       statusKey = key
@@ -338,6 +362,8 @@ export function useScene(options: Options): void {
       return '#fff'
     }
     const frame = () => {
+      const requestedRepaint = needsRepaint
+      needsRepaint = false
       const now = performance.now()
       frameRequest = undefined
       if (disposed || document.hidden || lost) return
@@ -359,7 +385,11 @@ export function useScene(options: Options): void {
       const pixelRatio = Math.min(
         window.devicePixelRatio || 1,
         Number.isFinite(maxPixelRatio) && maxPixelRatio > 0 ? maxPixelRatio : 2,
-        Math.sqrt(2_000_000 / Math.max(1, width * height)),
+        Math.sqrt(
+          (Number.isFinite(maxCanvasPixels) && maxCanvasPixels >= 1
+            ? Math.min(maxCanvasPixels, 4096 * 4096)
+            : 2_000_000) / Math.max(1, width * height)
+        ),
         4096 / Math.max(1, width),
         4096 / Math.max(1, height)
       )
@@ -684,7 +714,14 @@ export function useScene(options: Options): void {
           : (compiled?.media.some(
               (media) => media instanceof HTMLCanvasElement || (!media.paused && !media.ended)
             ) ?? false)
-      if (remeasure || scrolled || viewportChanged || mediaPlaying || pendingSince !== undefined) {
+      if (
+        requestedRepaint ||
+        remeasure ||
+        scrolled ||
+        viewportChanged ||
+        mediaPlaying ||
+        pendingSince !== undefined
+      ) {
         try {
           if (projected) {
             compiled = projected
@@ -1147,11 +1184,18 @@ export function useScene(options: Options): void {
             record.target !== output &&
             !output.contains(record.target) &&
             !(
+              record.target instanceof HTMLCanvasElement &&
+              record.target.hasAttribute('data-liquid-glass-scene-canvas')
+            ) &&
+            !(
               record.target === host &&
               record.type === 'attributes' &&
-              ['data-liquid-glass-scene-ready', 'data-liquid-glass-scene-pending'].includes(
-                record.attributeName ?? ''
-              )
+              [
+                'data-liquid-glass-scene-ready',
+                'data-liquid-glass-scene-pending',
+                'data-liquid-glass-measuring-layers',
+                'data-liquid-glass-layered-visible',
+              ].includes(record.attributeName ?? '')
             )
         )
       )
@@ -1268,8 +1312,10 @@ export function useScene(options: Options): void {
       compiler.dispose()
       viewportCompiler?.dispose()
       invalidate.current = () => {}
+      repaint.current = () => {}
       host.removeAttribute('data-liquid-glass-scene-ready')
       host.removeAttribute('data-liquid-glass-scene-pending')
+      host.removeAttribute('data-liquid-glass-layered-visible')
     }
   }, [
     root,
@@ -1277,8 +1323,10 @@ export function useScene(options: Options): void {
     canvas,
     glasses,
     invalidate,
+    repaint,
     background,
     maxPixelRatio,
+    maxCanvasPixels,
     presentation,
     canvasContainer,
     foreground,

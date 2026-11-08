@@ -200,6 +200,7 @@ export function GlassExample() {
 export function DemoPanel() {
   const [settings, setSettings] = useState<GlassStudioProps>(createStudioSettings)
   const [convexity, setConvexity] = useState(0)
+  const [interactiveGlare, setInteractiveGlare] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -217,7 +218,7 @@ export function DemoPanel() {
     if (copyTimer.current !== undefined) clearTimeout(copyTimer.current)
     try {
       await navigator.clipboard.writeText(
-        `<LiquidGlass\n  {...${JSON.stringify(settings, null, 2)}}\n  convexity={${convexity}}\n/>`
+        `<LiquidGlass\n  {...${JSON.stringify(settings, null, 2)}}\n  convexity={${convexity}}\n  glareAngleMode="${interactiveGlare ? 'interactive' : 'manual'}"\n/>`
       )
       if (mounted.current) setCopyStatus('copied')
     } catch {
@@ -229,16 +230,23 @@ export function DemoPanel() {
   const reset = () => {
     setSettings(createStudioSettings())
     setConvexity(0)
+    setInteractiveGlare(false)
   }
 
   return (
     <DemoStyled>
-      <LiquidGlassScene className="demo__scene" background="#102031">
+      <LiquidGlassScene
+        className="demo__scene"
+        background="#102031"
+        maxPixelRatio={Number.MAX_SAFE_INTEGER}
+        maxCanvasPixels={16_777_216}
+      >
         <VideoBackground src="/videos/bangkok.mp4" />
         <Navbar
           current="demo"
           settings={settings}
           convexity={convexity}
+          glareAngleMode={interactiveGlare ? 'interactive' : 'manual'}
           onMenuOpenChange={setMenuOpen}
         />
         <main className="demo__main">
@@ -258,7 +266,12 @@ export function DemoPanel() {
               <code>{usageCode}</code>
             </pre>
           </section>
-          <LiquidGlass {...settings} convexity={convexity} className="demo__preview">
+          <LiquidGlass
+            {...settings}
+            convexity={convexity}
+            glareAngleMode={interactiveGlare ? 'interactive' : 'manual'}
+            className="demo__preview"
+          >
             <h2 className="demo__preview-title">Liquid Glass</h2>
             <button
               type="button"
@@ -285,6 +298,8 @@ export function DemoPanel() {
       <div className="demo__controls" hidden={menuOpen}>
         <GlassControls
           settings={settings}
+          interactiveGlare={interactiveGlare}
+          onInteractiveGlareChange={setInteractiveGlare}
           onSettingsChange={setSettings}
           convexity={convexity}
           onConvexityChange={setConvexity}

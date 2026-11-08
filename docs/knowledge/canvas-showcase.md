@@ -10,7 +10,8 @@ composition, not a general way to refract unsupported DOM.
 
 ## Public contract
 
-`LiquidGlassScene` and managed material props require package version `0.3.0` or newer.
+`LiquidGlassScene`, managed material props, interactive glare, and the experimental layered mode
+require the current `0.4.x` package or newer.
 `LiquidGlass` keeps its standalone rendering path outside a scene.
 
 Managed surfaces accept the material props listed in the API reference. `GLASS_STUDIO_DEFAULTS`

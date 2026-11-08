@@ -38,6 +38,39 @@
   z-index: 1;
 }
 
+:where(.liquid-glass) .liquid-glass__native-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+
+:where([data-liquid-glass-foreground-mode='layered'][data-liquid-glass-scene-ready='true']:not([data-liquid-glass-measuring-layers]))
+  :where(.liquid-glass--layered) {
+  z-index: 2;
+}
+
+:where([data-liquid-glass-foreground-mode='layered'][data-liquid-glass-scene-ready='true'])
+  :where(.liquid-glass--layered) {
+  background: transparent !important;
+  /* The snapshot layer has its own shape; the legacy pane radius must not clip it. */
+  overflow: visible;
+}
+
+:where([data-liquid-glass-foreground-mode='layered'][data-liquid-glass-scene-ready='true'])
+  :where(.liquid-glass--layered) > .liquid-glass__content {
+  /* Keep children clipped while allowing the native layer to use its own shape. */
+  overflow: hidden;
+}
+
+:where([data-liquid-glass-foreground-mode='layered'][data-liquid-glass-scene-ready='true'])
+  :where(.liquid-glass--layered) .liquid-glass__native-layer {
+  opacity: 1;
+}
+
 :where(.liquid-glass) .liquid-glass__webgl {
   display: none;
   position: absolute;

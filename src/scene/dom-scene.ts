@@ -481,6 +481,21 @@ export function createSceneCompiler(
       const items: SceneItem[] = []
       const targets: SceneTarget[] = []
       const issues = new Set<string>()
+      if (root.closest('[data-liquid-glass-foreground-mode="layered"]')) {
+        let nativePanes = false
+        let canvasPanes = false
+        for (const [pane, options] of glasses) {
+          if (!root.contains(pane)) continue
+          if (options.nativeLayer) nativePanes = true
+          else canvasPanes = true
+        }
+        // A native pane is composited above the single scene canvas. Without
+        // separate layers for every pane, DOM stacking can disagree with the
+        // canvas paint order when panes overlap. Preserve the native fallback
+        // rather than silently showing the wrong pane or its contents on top.
+        if (nativePanes && canvasPanes)
+          issues.add('Layered foreground requires nativeContent on every managed pane')
+      }
       const foregroundMarkers = new Set<Element>()
       if (nativeForegroundRoot) {
         for (const marker of nativeForegroundRoot.querySelectorAll(
@@ -521,6 +536,31 @@ export function createSceneCompiler(
       const deferredActiveEditors = new WeakSet<Element>()
       const samplingWatches: SamplingWatch[] = []
       let shadowPaintCount = 0
+      // Layered output temporarily raises native panes over the scene canvas.
+      // Sample the authored stacking levels in one synchronous batch with
+      // only that internal boost disabled; otherwise its z-index enters the
+      // captured scene and may create a false escaping-stacking error. Reading
+      // fresh each compile also preserves author styles that change later.
+      const unboostedZ = new WeakMap<Element, string>()
+      const layerHost = root.closest(
+        '[data-liquid-glass-foreground-mode="layered"][data-liquid-glass-scene-ready="true"]'
+      )
+      if (layerHost) {
+        const panes = [...glasses].filter(
+          ([pane, options]) => options.nativeLayer && root.contains(pane)
+        )
+        if (panes.length) {
+          const attribute = 'data-liquid-glass-measuring-layers'
+          const previous = layerHost.getAttribute(attribute)
+          layerHost.setAttribute(attribute, '')
+          try {
+            for (const [pane] of panes) unboostedZ.set(pane, getComputedStyle(pane).zIndex)
+          } finally {
+            if (previous === null) layerHost.removeAttribute(attribute)
+            else layerHost.setAttribute(attribute, previous)
+          }
+        }
+      }
       const styleCache = new WeakMap<Element, Map<string, CSSStyleDeclaration>>()
       const readStyle: StyleReader = (element, pseudo) => {
         let cache = styleCache.get(element)
@@ -531,9 +571,101 @@ export function createSceneCompiler(
         const key = pseudo ?? ''
         const cached = cache.get(key)
         if (cached) return cached
-        const style = getComputedStyle(element, pseudo)
+        const computed = getComputedStyle(element, pseudo)
+        const zIndex = pseudo ? undefined : unboostedZ.get(element)
+        const style =
+          zIndex === undefined
+            ? computed
+            : new Proxy(computed, {
+                get(target, property) {
+                  if (property === 'zIndex') return zIndex
+                  if (property === 'getPropertyValue') {
+                    return (name: string) =>
+                      name === 'z-index' ? zIndex : target.getPropertyValue(name)
+                  }
+                  const value = Reflect.get(target, property, target)
+                  return typeof value === 'function' ? value.bind(target) : value
+                },
+              })
         cache.set(key, style)
         return style
+      }
+      const layeredHost = root.closest('[data-liquid-glass-foreground-mode="layered"]')
+      // Before the first successful frame, the scene's own content wrapper has
+      // z-index:0. Layered CSS removes that context only when the scene is
+      // ready. Probe that exact future state instead of treating the internal
+      // wrapper as an unsafe author-created ancestor. User overrides still
+      // count: if the wrapper remains a context in the ready state, fallback.
+      let readyContent: Element | undefined
+      let readyContentStacking: boolean | undefined
+      if (
+        layeredHost &&
+        !layeredHost.hasAttribute('data-liquid-glass-scene-ready') &&
+        [...glasses].some(([pane, options]) => options.nativeLayer && root.contains(pane))
+      ) {
+        readyContent = [...layeredHost.children].find((child) =>
+          child.classList.contains('liquid-glass-scene__content')
+        )
+        if (readyContent && readyContent !== root && root.contains(readyContent)) {
+          layeredHost.setAttribute('data-liquid-glass-scene-ready', 'true')
+          try {
+            readyContentStacking = createsStackingContext(
+              readyContent,
+              getComputedStyle(readyContent),
+              getComputedStyle
+            )
+          } finally {
+            layeredHost.removeAttribute('data-liquid-glass-scene-ready')
+          }
+        }
+      }
+      if (layeredHost) {
+        for (const [pane, options] of glasses) {
+          if (!options.nativeLayer || !root.contains(pane)) continue
+          const style = readStyle(pane)
+          const borders = [
+            style.borderTopWidth,
+            style.borderRightWidth,
+            style.borderBottomWidth,
+            style.borderLeftWidth,
+          ]
+          if (borders.some((value) => value && (!Number.isFinite(Number.parseFloat(value)) || Number.parseFloat(value) !== 0)))
+            issues.add('Layered foreground requires panes without borders')
+          if (
+            (style.transform && style.transform !== 'none') ||
+            (style.translate && style.translate !== 'none') ||
+            (style.rotate && style.rotate !== 'none') ||
+            (style.scale && style.scale !== 'none') ||
+            (style.perspective && style.perspective !== 'none')
+          )
+            issues.add('Layered foreground requires untransformed panes')
+          if (
+            (style.opacity && Number.parseFloat(style.opacity) < 1) ||
+            (style.filter && style.filter !== 'none') ||
+            (style.mixBlendMode && style.mixBlendMode !== 'normal')
+          )
+            issues.add('Layered foreground requires opaque, unfiltered panes')
+          const parent = pane.parentElement
+          const parentDisplay = parent ? readStyle(parent).display : ''
+          const z = style.zIndex?.trim()
+          if (
+            (z && z !== 'auto' && (!/^-?\d+$/.test(z) || Number(z) < 2)) ||
+            (style.position === 'static' &&
+              !parentDisplay.includes('flex') &&
+              !parentDisplay.includes('grid'))
+          )
+            issues.add('Layered foreground requires pane stacking above the scene canvas')
+          for (let ancestor = parent; ancestor && ancestor !== root; ancestor = ancestor.parentElement) {
+            const stackingContext =
+              ancestor === readyContent && readyContentStacking !== undefined
+                ? readyContentStacking
+                : createsStackingContext(ancestor, readStyle(ancestor), readStyle)
+            if (stackingContext) {
+              issues.add('Layered foreground cannot use stacking-context ancestors')
+              break
+            }
+          }
+        }
       }
       const stacking = createStackingHoistPlan(
         root,
@@ -1706,6 +1838,8 @@ export function createSceneCompiler(
               ...(glass.magnification !== undefined ? { magnification: glass.magnification } : {}),
               ...(map ? { map } : {}),
               ...(studio ? { studio } : {}),
+              ...(glass.nativeLayer ? { nativeLayer: glass.nativeLayer } : {}),
+              ...(glass.glareOffset ? { glareOffset: glass.glareOffset } : {}),
             })
           } else if (
             visible &&

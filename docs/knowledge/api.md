@@ -16,9 +16,9 @@ tags:
 
 # API reference
 
-The managed scene, Studio material props, and `ScrollEdge` require `0.3.0` or newer.
-Published npm `0.2.1` does not contain them; use the local package during development or
-install a published `0.3.0+` release.
+The managed scene, Studio material props, and `ScrollEdge` require the current `0.4.x` release
+or newer. Older npm releases may not contain these exports; install the current published
+package or use the local package during development.
 
 ## Imports
 
@@ -131,6 +131,8 @@ export function StudioExample() {
 | `glareConvergence`    |                               `50` | `0–100`.                                     |
 | `glareOppositeFactor` |                               `80` | `0–100`.                                     |
 | `glareAngle`          |                              `-45` | `-180–180` degrees.                          |
+| `glareAngleMode`      |                         `'manual'` | `'interactive'` follows touch or mouse position. |
+| `nativeContent`       |                            `false` | Keep pane children as native HTML in an experimental layered scene. |
 | `blurRadius`          |                                `1` | `1–200`, Gaussian radius.                    |
 | `blurEdge`            |                             `true` | Blur throughout the refracting edge.         |
 | `tint`                | `{ r: 255, g: 255, b: 255, a: 0 }` | RGB `0–255`, alpha `0–1`.                    |
@@ -139,6 +141,11 @@ export function StudioExample() {
 | `shadowPosition`      |                 `{ x: 0, y: -10 }` | Each axis `-20–20`.                          |
 | `shapeRadius`         |                               `80` | `1–100`, percent of half the shorter side.   |
 | `shapeRoundness`      |                                `5` | `2–7`, superellipse exponent.                |
+
+`glareAngleMode="interactive"` applies to managed glass inside a scene and adjusts the glare
+around the configured `glareAngle` while a finger touches the screen, including during scrolling,
+or follows mouse movement on desktop. Scrolling alone does not affect the glare. It does not use
+device sensors or request permission. Reduced-motion preferences disable the effect.
 
 `shapeWidth` and `shapeHeight` are pixel sizing aliases. When supplied, they become the
 defaults for `width` and `height`; explicit `width` or `height` props take precedence.
@@ -156,13 +163,19 @@ and canvas content from its children. Consumers do not create a canvas or add ma
 | Prop                          | Type              |                 Default | Description                                           |
 | ----------------------------- | ----------------- | ----------------------: | ----------------------------------------------------- |
 | `background`                  | `string`          | wrapper/page background | Opaque base behind the scene.                         |
-| `maxPixelRatio`               | `number`          |                     `2` | Backing resolution cap and mobile pixel-budget input. |
+| `maxPixelRatio`               | `number`          |                     `2` | Maximum canvas backing pixel ratio. |
+| `maxCanvasPixels`             | `number`          |               `2000000` | Pixel budget; finite values of at least 1 are capped at 4096². |
 | `presentation`                | `'scene' \| 'glass-only'` |              `'scene'` | Canvas coverage; `glass-only` retains native content outside the pane. |
 | `onStatusChange`              | `(state) => void` |                       — | Receives `ready`, `pending`, or `fallback` with reasons. |
 | `canvasContainer`             | `HTMLElement \| null` | — | In `glass-only`, mounts the canvas inside a fixed container that contains every managed pane. |
-| `foreground`                  | `'canvas' \| 'native'` | `'canvas'` | In `glass-only` with `canvasContainer`, keeps marked container descendants as native HTML above the canvas. |
+| `foreground`                  | `'canvas' \| 'native' \| 'layered'` | `'canvas'` | `'native'` retains marked controls in glass-only mode; experimental `'layered'` supports native pane content in a regular scene. |
 | `includeStyles`               | `boolean`             |                  `true` | Render the scene's embedded static style tag. Set `false` when the package stylesheet is loaded. |
 | `children`, `ref`, HTML attrs | React/HTML types  |                       — | Normal React content and root attributes.             |
+
+The effective backing ratio is limited by the device DPR, `maxPixelRatio`, `maxCanvasPixels`,
+and 4096 pixels per canvas side. Increasing the pixel budget raises memory and rendering cost;
+individual captured bitmaps and effects may have separate limits, and devices can still fall back
+when WebGL allocations fail. Invalid pixel budgets use the default of 2,000,000 pixels.
 
 ```tsx
 export function SceneWithStatus() {
@@ -309,6 +322,26 @@ to place the marked controls above the canvas and every managed pane. The option
 change the default `foreground` behavior, and it does not remove native HTML fallback when the
 scene cannot safely capture other content.
 
+### Experimental layered pane content
+
+Use `foreground="layered"` with a regular scene and `nativeContent` on each managed pane:
+
+```tsx
+<LiquidGlassScene foreground="layered">
+  <LiquidGlass nativeContent>Sharp text and controls</LiquidGlass>
+</LiquidGlassScene>
+```
+
+The scene retains captured pane content for other panes to refract, while a per-pane canvas
+shows the glass beneath native HTML. Outside panes, the page is displayed as native HTML; set its
+background with CSS because the `background` prop controls only the captured scene's base color.
+If any pane uses `nativeContent`, all managed panes in
+that scene must use it. Mixing pane types triggers fallback. The current mode supports opaque,
+untransformed panes without borders or intervening stacking-context ancestors; detected
+unsupported layouts fall back. Other overlapping DOM content and shadows outside a pane can
+still render in the wrong order. Snapshot copying and stacking checks add work, so verify
+performance and visual ordering on the intended devices before adopting this experimental API.
+
 ## `ScrollEdge`
 
 `ScrollEdge` renders a root wrapper and an inner `.scroll-edge__scrollable` viewport. With the
@@ -380,5 +413,6 @@ parses the numeric value as seconds, even when a different CSS unit is supplied.
 `.scroll-edge__scrollable`, mask wrappers and blur overlay classes. Treat these as styling
 hooks rather than a stable DOM contract.
 
-Published npm `0.2.1` contains only the older public API. The managed scene, Studio exports
-and ScrollEdge documented here require `0.3.0` or newer.
+Older npm releases contain only part of this public API. The managed scene, Studio exports,
+interactive glare, experimental layered mode, and ScrollEdge documented here require the current
+`0.4.x` release or newer.
